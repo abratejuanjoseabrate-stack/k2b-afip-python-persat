@@ -1,0 +1,82 @@
+# Servicio AFIP - Docker Compose (Producción)
+version: '3.8'
+
+services:
+  afip-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.deploy
+    container_name: afip-service
+    restart: unless-stopped
+    
+    # Variables de entorno
+    environment:
+      # CUIT del emisor (obligatorio)
+      - CUIT=${AFIP_CUIT}
+      
+      # Punto de venta default
+      - PTO_VTA=${AFIP_PTO_VTA:-1}
+      
+      # Base de datos (SQLite es suficiente para tokens/cache)
+      - DATABASE_URL=sqlite+aiosqlite:///./database.db
+      
+      # JWT Secret (cambiar en producción!)
+      - SECRET_KEY=${JWT_SECRET_KEY}
+      
+      # Configuración API
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      
+      # Nivel de logs
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FILE=logs/app.log
+      
+      # URLs AFIP (homologación por defecto)
+      - URL_WSAA=${URL_WSAA:-https://wsaahomo.afip.gov.ar/ws/services/LoginCms?wsdl}
+      - URL_WSFEV1=${URL_WSFEV1:-https://wswhomo.afip.gov.ar/wsfev1/service.asmx?WSDL}
+    
+    # Puertos expuestos
+    ports:
+      - "${API_PORT:-8000}:8000"
+    
+    # Volúmenes persistentes
+    volumes:
+      # Certificados AFIP (solo lectura)
+      - ./certs:/app/certs:ro
+      
+      # Cache de tickets de acceso
+      - afip-cache:/app/cache
+      
+      # Logs
+      - afip-logs:/app/logs
+      
+      # Base de datos SQLite
+      - afip-db:/app/data
+    
+    # Red
+    networks:
+      - afip-network
+    
+    # Límites de recursos (opcional)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+# Volúmenes persistentes
+volumes:
+  afip-cache:
+    driver: local
+  afip-logs:
+    driver: local
+  afip-db:
+    driver: local
+
+# Red interna
+networks:
+  afip-network:
+    driver: bridge

@@ -1,0 +1,58 @@
+# Dockerfile - Servicio AFIP Python (Minimal)
+FROM python:3.11-slim
+
+LABEL maintainer="Hurlingham App"
+LABEL description="Servicio AFIP - Facturación Electrónica"
+
+# Evitar buffering de Python
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# Instalar dependencias del sistema necesarias
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    libssl-dev \
+    libffi-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copiar requirements de PyAfipWs
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --upgrade pip && \
+    pip install -r /tmp/requirements.txt
+
+# Copiar todo el código de PyAfipWs
+COPY . /tmp/pyafipws/
+WORKDIR /tmp/pyafipws
+RUN pip install -e .
+
+# Volver al directorio de trabajo
+WORKDIR /app
+
+# Copiar código del microservicio FastAPI
+COPY arca_api/requirements-fastapi.txt .
+RUN pip install -r requirements-fastapi.txt
+
+# Copiar todo el microservicio
+COPY arca_api/ .
+
+# Eliminar .env si existe (usaremos variables de entorno)
+RUN rm -f .env 2>/dev/null || true
+
+# Crear directorios necesarios
+RUN mkdir -p cache/homo cache/prod logs certs/homo certs/prod
+
+# Puerto del servicio
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Comando de inicio
+CMD ["python", "run.py"]

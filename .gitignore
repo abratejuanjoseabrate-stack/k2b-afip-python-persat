@@ -1,0 +1,76 @@
+# AFIP - Certificados y datos sensibles
+certs/
+*.crt
+*.key
+*.p12
+*.pem
+
+# AFIP - Cache y logs temporales
+cache/
+logs/
+*.log
+
+# Base de datos
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Python
+*.py[cod]
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# C extensions
+*.so
+
+# Packages
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+bin/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+
+# Installer logs
+pip-log.txt
+
+# Unit test / coverage reports
+.coverage
+.tox
+nosetests.xml
+
+# Translations
+*.mo
+
+# Mr Developer
+.mr.developer.cfg
+.project
+.pydevproject
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.cursor/
+.factory/
+.qoder/
+.vscode/
+.idea/
+
