@@ -119,25 +119,57 @@ $ServerIP = "XXX.XXX.XXX.XXX"
 $Username = "tu-usuario"
 
 # Crear directorios de certificados
-ssh ${Username}@${ServerIP} "mkdir -p /opt/afip/arca_api/certs/{homo,prod}"
+ssh ${Username}@${ServerIP} "mkdir -p /opt/afip/certs/{homo,prod}"
 
 # Subir certificados de homologación
-scp -r servicioAfip\arca_api\certs\homo\* ${Username}@${ServerIP}:/opt/afip/arca_api/certs/homo/
+scp -r servicioAfip\arca_api\certs\homo\* ${Username}@${ServerIP}:/opt/afip/certs/homo/
 
 # Subir certificados de producción  
-scp -r servicioAfip\arca_api\certs\prod\* ${Username}@${ServerIP}:/opt/afip/arca_api/certs/prod/
+scp -r servicioAfip\arca_api\certs\prod\* ${Username}@${ServerIP}:/opt/afip/certs/prod/
 ```
 
-### 2.3 Iniciar Docker
+### 2.3 Configurar variables de entorno
+
+Crear archivo `.env` con todas las variables necesarias:
 
 ```bash
 cd /opt/afip
+
+# Crear archivo .env
+cat > .env << 'EOF'
+# AFIP
+AFIP_CUIT=30712330984
+JWT_SECRET_KEY=6da1f996e3c013f8d8c2e9da199c66c3c7ad2c983c45c4d028ce9c633a1b1b44
+
+# Certificados homologación (ajustar según tus nombres de archivo)
+CERT_PATH=certs/homo/LIROpriv20260219homo2_crt.crt
+KEY_PATH=certs/homo/LIROpriv20260219homo2.key
+
+# Certificados producción (ajustar según tus nombres de archivo)
+PROD_CERT_PATH=certs/prod/LIROPRUEBASFACT20260919PROD2_4d6fbf9ef97dc5b6.crt
+PROD_KEY_PATH=certs/prod/LIROpriv20260219prod2.key
+EOF
+
+# Verificar
+ls .env
+cat .env
+```
+
+### 2.4 Iniciar Docker
+
+Primera vez: hacer login en Docker Hub (evita rate limit)
+
+```bash
+# Login en Docker Hub (si tienes cuenta)
+docker login
+# Username: tu-usuario
+# Password: tu-contraseña
 
 # Primera vez (construye imagen)
 docker compose up -d --build
 
 # Ver logs
-watch docker compose logs -f arca_api
+docker compose logs --tail 30
 ```
 
 ### 2.4 Verificar funcionamiento
@@ -286,14 +318,25 @@ jar -tf /opt/tomee/webapps/K2BHurlinghamAppWeb.war | grep config.properties
 
 ### Error de certificados
 
+**Síntoma:** `FileNotFoundError: No existe el certificado: /app/certs/homo/CERT.crt`
+
+**Causa:** Nombres de certificados no coinciden o ubicación incorrecta
+
+**Solución:**
 ```bash
-# Verificar certificados existen
-ls -la /opt/afip/arca_api/certs/homo/
-ls -la /opt/afip/arca_api/certs/prod/
+# Verificar certificados están en la raíz del proyecto (no en arca_api/certs/)
+ls -la /opt/afip/certs/homo/
+ls -la /opt/afip/certs/prod/
+
+# Si están en arca_api/certs/, moverlos:
+mv /opt/afip/arca_api/certs /opt/afip/certs
+
+# Verificar nombres de archivos en .env coinciden con los reales
+cat /opt/afip/.env | grep CERT
 
 # Limpiar cache AFIP
-sudo rm -rf /opt/afip/arca_api/cache/*
-docker compose restart arca_api
+sudo rm -rf /opt/afip/cache/*
+docker compose restart
 ```
 
 ### Puerto 8000 ocupado
