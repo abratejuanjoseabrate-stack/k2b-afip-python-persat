@@ -1,0 +1,182 @@
+# ============================================================================
+# Python
+# ============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ============================================================================
+# Entornos Virtuales
+
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.venv.bak/
+
+# ============================================================================
+# Base de Datos
+# ============================================================================
+*.db
+*.sqlite
+*.sqlite3
+database.db
+*.db-journal
+
+# ============================================================================
+# Certificados y Claves Privadas (SENSIBLE - NUNCA COMMITEAR)
+# ============================================================================
+certs/
+*.crt
+*.key
+*.pem
+*.p12
+*.pfx
+*.csr
+*.no-ext
+*.cer
+*.der
+private_key*
+certificate*
+*.jks
+*.keystore
+
+# ============================================================================
+# Caché de AFIP (Tickets de Acceso)
+# ============================================================================
+cache/
+*.pkl
+*.xml
+TA-*.xml
+
+# ============================================================================
+# Variables de Entorno y Configuración Sensible
+# ============================================================================
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+*.env
+config.ini
+secrets.yaml
+secrets.yml
+
+# ============================================================================
+# Logs
+# ============================================================================
+*.log
+logs/
+*.log.*
+log/
+
+# ============================================================================
+# Archivos Temporales y de Sistema
+# ============================================================================
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+*.bak
+*.backup
+
+# ============================================================================
+# IDEs y Editores
+# ============================================================================
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.project
+.pydevproject
+.settings/
+*.code-workspace
+
+# ============================================================================
+# Testing y Coverage
+# ============================================================================
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+coverage.xml
+*.cover
+
+# ============================================================================
+# Jupyter Notebooks
+# ============================================================================
+.ipynb_checkpoints
+*.ipynb
+
+# ============================================================================
+# Archivos Específicos del Proyecto
+# ============================================================================
+# Documentación interna
+MDS/
+.agents/
+
+# Archivos de usuario/API
+api/usuarioapi.txt
+*usuario*.txt
+
+# Archivos de análisis
+semgrep_*.json
+semgrep_*.json
+*.semgrep
+
+# Archivos de arquitectura/documentación específicos
+src/arquitectura.md
+src/webservices_Necesarios_Requerimientos.md
+
+# ============================================================================
+# Archivos de Migración (opcional - descomentar si no quieres versionar)
+# ============================================================================
+# alembic/versions/*.py
+# !alembic/versions/__init__.py
+
+# ============================================================================
+# Archivos de Build y Distribución
+# ============================================================================
+*.whl
+*.tar.gz
+*.zip
+dist/
+build/
+
+# ============================================================================
+# Archivos de Certificados de Desarrollo (si los quieres ignorar)
+# ============================================================================
+# certs/homo/
+# certs/prod/

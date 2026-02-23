@@ -1,0 +1,38 @@
+# Dependencias FastAPI para PyAfipWs API
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+
+# Dependencias para autenticación JWT
+python-jose[cryptography]>=3.3.0
+bcrypt>=4.0.0  # Usamos bcrypt directamente (más simple y compatible)
+email-validator>=2.1.0
+
+# Dependencias para base de datos (SQLite para desarrollo)
+sqlalchemy[asyncio]>=2.0.30
+aiosqlite>=0.19.0
+
+# Migraciones de base de datos (opcional pero recomendado)
+alembic>=1.13.0
+
+# Dependencias FastAPI para PyAfipWs API
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+
+# Dependencias para autenticación JWT
+python-jose[cryptography]>=3.3.0
+bcrypt>=4.0.0  # Usamos bcrypt directamente (más simple y compatible)
+email-validator>=2.1.0
+
+# Dependencias para formularios (requerido por OAuth2PasswordRequestForm)
+python-multipart>=0.0.6
+
+# Dependencias para base de datos (SQLite para desarrollo)
+sqlalchemy[asyncio]>=2.0.30
+aiosqlite>=0.19.0
+
+# Migraciones de base de datos (opcional pero recomendado)
+alembic>=1.13.0
