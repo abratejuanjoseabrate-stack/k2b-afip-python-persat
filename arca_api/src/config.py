@@ -84,7 +84,7 @@ class Settings(BaseSettings):
 
     URL_WSAA_PROD: str = "https://wsaa.afip.gov.ar/ws/services/LoginCms?wsdl"
     URL_WSFEV1_PROD: str = "https://servicios1.afip.gov.ar/wsfev1/service.asmx?WSDL"
-    URL_PADRON_A5_PROD: str = ""
+    URL_PADRON_A5_PROD: str = "https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA5?wsdl"
     
     # Paths de certificados (relativos al base_dir)
     # Almacenamos como string, las propiedades devuelven Path
