@@ -42,6 +42,8 @@ services:
       # URLs AFIP (homologación por defecto)
       - URL_WSAA=${URL_WSAA:-https://wsaahomo.afip.gov.ar/ws/services/LoginCms?wsdl}
       - URL_WSFEV1=${URL_WSFEV1:-https://wswhomo.afip.gov.ar/wsfev1/service.asmx?WSDL}
+      - URL_PADRON_A5_HOMO=${URL_PADRON_A5_HOMO:-https://awshomo.afip.gov.ar/sr-padron/webservices/personaServiceA5?WSDL}
+      - URL_PADRON_A5_PROD=${URL_PADRON_A5_PROD:-https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA5?WSDL}
     
     # Puertos expuestos
     ports:
