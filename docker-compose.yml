@@ -1,4 +1,5 @@
 # Servicio AFIP - Docker Compose (Producción)
+# Ejecutar desde el directorio donde está este archivo (ej: /opt/afip o servicioAfip/)
 version: '3.8'
 
 services:
@@ -17,8 +18,8 @@ services:
       # Punto de venta default
       - PTO_VTA=${AFIP_PTO_VTA:-1}
       
-      # Base de datos (SQLite es suficiente para tokens/cache)
-      - DATABASE_URL=sqlite+aiosqlite:///./database.db
+      # Base de datos SQLite (ruta en volumen persistente)
+      - DATABASE_URL=sqlite+aiosqlite:///./data/database.db
       
       # JWT Secret (cambiar en producción!)
       - SECRET_KEY=${JWT_SECRET_KEY}
@@ -45,9 +46,9 @@ services:
       - URL_PADRON_A5_HOMO=${URL_PADRON_A5_HOMO:-https://awshomo.afip.gov.ar/sr-padron/webservices/personaServiceA5?WSDL}
       - URL_PADRON_A5_PROD=${URL_PADRON_A5_PROD:-https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA5?WSDL}
     
-    # Puertos expuestos
+    # Puertos: solo localhost para que solo TomEE/Java se conecte (seguridad)
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     
     # Volúmenes persistentes
     volumes:
