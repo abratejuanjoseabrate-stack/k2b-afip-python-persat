@@ -1,7 +1,10 @@
 """
 Servicio para consultas de padrón (Alcance 5) en homologación
 """
+import ssl
+import urllib.request
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 from pyafipws.ws_sr_padron import WSSrPadronA5
 
@@ -15,6 +18,20 @@ from ..shared.exceptions import (
 from ..shared.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+def _download_wsdl(url: str) -> str:
+    """Descargar WSDL a archivo temporal, deshabilitando verificación SSL"""
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    
+    with urllib.request.urlopen(url, context=ctx, timeout=30) as response:
+        wsdl_content = response.read()
+    
+    # Guardar en archivo temporal
+    with NamedTemporaryFile(mode='wb', suffix='.wsdl', delete=False) as f:
+        f.write(wsdl_content)
+        return f.name
 
 
 class PadronA5Service:
@@ -43,13 +60,15 @@ class PadronA5Service:
         self.padron.Cuit = settings.CUIT
         self.padron.SetTicketAcceso(ta)
 
-        # Para homologación, deshabilitar verificación SSL (cacert=None)
-        # Esto evita problemas con proxies corporativos / inspección TLS
+        # Descargar WSDL localmente para evitar problemas SSL en pysimplesoap
         url_ws = settings.get_padron_a5_wsdl(self.env)
+        wsdl_path = _download_wsdl(url_ws)
         self.wsdl = url_ws
+        logger.info(f"WSDL descargado a: {wsdl_path}")
+        
         self.padron.Conectar(
             cache=None,  # Deshabilitar caché para evitar WSDL corrupto
-            wsdl=url_ws,
+            wsdl=wsdl_path,
             cacert=None,
         )
         logger.info("Conexión PadronA5Service establecida correctamente")
