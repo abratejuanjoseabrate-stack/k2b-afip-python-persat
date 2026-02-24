@@ -48,8 +48,8 @@ class PadronA5Service:
         url_ws = settings.get_padron_a5_wsdl(self.env)
         self.wsdl = url_ws
         self.padron.Conectar(
-            str(settings.get_cache_path(self.env)),
-            url_ws,
+            cache=None,  # Deshabilitar caché para evitar WSDL corrupto
+            wsdl=url_ws,
             cacert=None,
         )
         logger.info("Conexión PadronA5Service establecida correctamente")
