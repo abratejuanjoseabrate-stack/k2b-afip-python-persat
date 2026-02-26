@@ -1,0 +1,54 @@
+# Entornos virtuales (no incluir en imagen)
+.venv
+venv
+env
+arca_api/.venv
+arca_api/venv
+
+# Cache y builds
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+cache/
+arca_api/cache/
+*.egg-info
+.eggs
+dist
+build
+
+# No incluir certificados en la imagen (se montan por volumen)
+certs/
+arca_api/certs/
+
+# No incluir .env en la imagen (se usan variables de docker-compose)
+.env
+.env.*
+!.env.example
+arca_api/.env
+arca_api/.env.*
+
+# Logs locales
+logs/
+*.log
+arca_api/logs/
+
+# Git y IDE
+.git
+.gitignore
+.dockerignore
+.idea
+.vscode
+.opencode
+*.swp
+*~
+
+# Tests y docs (opcional: reducir tamaño de imagen)
+# tests/
+# docs/
+# *.md
+
+# Otros
+.DS_Store
+Thumbs.db

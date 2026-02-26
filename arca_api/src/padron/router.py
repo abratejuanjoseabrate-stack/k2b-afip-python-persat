@@ -5,8 +5,8 @@ Router unificado que acepta ambiente (homo/prod) como parámetro
 from fastapi import APIRouter, HTTPException, Query, Depends
 
 from .schemas import PadronA5Response, ImpuestoDetalle, ActividadDetalle
-from .service import PadronA5Service
-from .dependencies import get_padron_service
+from .service import PadronA4Service, PadronA5Service
+from .dependencies import get_padron_service, get_padron_a4_service
 from ..auth.dependencies import get_current_user
 from ..auth.models import User
 from ..shared.exceptions import AFIPError
@@ -146,9 +146,62 @@ def consultar_padron_a5(
     except HTTPException:
         raise
     except AFIPError:
-        # Re-lanzar excepciones de AFIP (serán manejadas por el handler global)
-        # El handler global ya incluye el manejo de debug
         raise
     except Exception as e:
-        # Para excepciones no-AFIP, lanzar HTTPException genérico
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/a4", response_model=PadronA5Response)
+def consultar_padron_a4(
+    id_persona: str = Query(..., description="CUIT/DNI a consultar (sin guiones)"),
+    debug: str = Query("false", description="Devuelve request/response SOAP completos (solo debugging): true/1"),
+    current_user: User = Depends(get_current_user),
+    service: PadronA4Service = Depends(get_padron_a4_service)
+):
+    """
+    Consulta padrón A4 (Padrón Alcance 4) por CUIT/DNI.
+
+    **Requiere autenticación JWT** - Incluye header: `Authorization: Bearer <token>`
+
+    Use query **env** para elegir ambiente: `homo` (homologación) o `prod` (producción).
+    Ejemplo: `/api/v1/padron/a4?id_persona=20123456789&env=prod`
+    """
+    logger.info(f"Usuario {current_user.email} (id={current_user.id}) consultando padrón A4 para: {id_persona}")
+    try:
+        id_persona = (id_persona or "").strip()
+        padron = service.consultar(id_persona)
+
+        raw = getattr(padron, "data", {}) or {}
+        datos = raw if isinstance(raw, dict) else {}
+        # A4 devuelve "impuesto" y "actividad"; normalizar para los parsers
+        datos_para_parser = {**datos, "impuestos": datos.get("impuesto", []), "actividades": datos.get("actividad", [])}
+
+        # A4 expone atributos directos: denominacion, direccion, tipo_persona, estado, etc.
+        return PadronA5Response(
+            id_persona=id_persona,
+            tipo_persona=getattr(padron, "tipo_persona", None) or datos.get("tipoPersona"),
+            denominacion=getattr(padron, "denominacion", None) or datos.get("razonSocial"),
+            estado=getattr(padron, "estado", None) or datos.get("estadoClave"),
+            nombre=datos.get("nombre"),
+            apellido=datos.get("apellido"),
+            tipo_documento=str(getattr(padron, "tipo_doc", "")) if getattr(padron, "tipo_doc", None) else datos.get("tipoClave"),
+            numero_documento=str(getattr(padron, "nro_doc", "")) if getattr(padron, "nro_doc", None) else (str(datos.get("numeroDocumento", "")) if datos.get("numeroDocumento") else None),
+            direccion=getattr(padron, "direccion", None),
+            localidad=getattr(padron, "localidad", None),
+            provincia=getattr(padron, "provincia", None),
+            cod_postal=str(getattr(padron, "cod_postal", "") or "") or None,
+            impuestos=list(getattr(padron, "impuestos", []) or []),
+            impuestos_detallados=_parse_impuestos_detallados(datos_para_parser),
+            actividades=list(getattr(padron, "actividades", []) or []),
+            actividades_detalladas=_parse_actividades_detalladas(datos_para_parser),
+            imp_iva=getattr(padron, "imp_iva", None),
+            monotributo=getattr(padron, "monotributo", None),
+            cat_iva=getattr(padron, "cat_iva", None),
+            raw=raw,
+        )
+    except HTTPException:
+        raise
+    except AFIPError:
+        raise
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

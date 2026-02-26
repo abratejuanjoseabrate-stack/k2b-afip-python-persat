@@ -39,6 +39,8 @@ services:
       # Nivel de logs
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FILE=logs/app.log
+      # Producción: sin reload (evita watcher y es más estable)
+      - API_RELOAD=false
       
       # URLs AFIP (homologación por defecto)
       - URL_WSAA=${URL_WSAA:-https://wsaahomo.afip.gov.ar/ws/services/LoginCms?wsdl}

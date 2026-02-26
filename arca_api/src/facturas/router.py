@@ -14,9 +14,9 @@ from ..shared.logging_config import get_logger
 
 logger = get_logger(__name__)
 from .schemas import (
-    FacturaCreate, 
+    FacturaCreate,
     FacturaCCreate,
-    FacturaResponse, 
+    FacturaResponse,
     UltimoAutorizadoResponse,
     CompConsultarResponse,
     PuntosVentaResponse,
@@ -24,8 +24,10 @@ from .schemas import (
     TiposComprobanteResponse,
     TiposDocumentoResponse,
     TiposIVAResponse,
-    TiposConceptoResponse
+    TiposConceptoResponse,
+    AuthVerifyResponse,
 )
+from ..shared.afip_auth import get_token_sign
 
 router = APIRouter(prefix="/api/v1/facturas", tags=["facturas"])
 
@@ -374,3 +376,34 @@ def obtener_tipos_concepto(
 def factura_c_schema():
     """Retorna el JSON Schema del request de Factura C (campos requeridos/opcionales)."""
     return FacturaCCreate.model_json_schema()
+
+
+@router.get("/auth/verify", response_model=AuthVerifyResponse)
+def verificar_certificados_afip(
+    env: str = Query("homo", description="Ambiente: homo o prod"),
+):
+    """
+    **Valida certificado y clave privada contra AFIP (WSAA).**
+
+    No requiere autenticación JWT. Útil para comprobar que:
+    - Los archivos CERT_PATH y KEY_PATH existen y son los que usa la API.
+    - La pareja certificado + clave es válida y AFIP la acepta.
+    - El CUIT del certificado coincide con el configurado.
+
+    Si responde 200 con `success: true`, los certificados son correctos para ese ambiente.
+    Si responde 500 (ej. "Firma inválida"), revisar cert/key/CUIT según la guía en docs.
+    """
+    try:
+        env_lower = (env or "homo").strip().lower()
+        if env_lower not in ("homo", "prod"):
+            env_lower = "homo"
+        token, sign = get_token_sign("wsfe", env=env_lower)
+        return AuthVerifyResponse(
+            success=True,
+            token=token or "",
+            sign=sign or "",
+            service="wsfe",
+        )
+    except Exception as e:
+        logger.exception("auth/verify falló")
+        raise HTTPException(status_code=500, detail=str(e))

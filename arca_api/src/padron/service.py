@@ -1,12 +1,12 @@
 """
-Servicio para consultas de padrón (Alcance 5) en homologación
+Servicio para consultas de padrón (Alcance 4 y 5) en homologación y producción
 """
 import ssl
 import urllib.request
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from pyafipws.ws_sr_padron import WSSrPadronA5
+from pyafipws.ws_sr_padron import WSSrPadronA4, WSSrPadronA5
 
 from ..config import settings
 from ..shared.afip_auth import get_ticket_acceso
@@ -94,6 +94,62 @@ class PadronA5Service:
                 )
             
             # Otros errores de servicio
+            raise AFIPServiceError(
+                message=error_msg,
+                service=self.service_name,
+                wsdl=self.wsdl,
+                soap_request=getattr(self.padron, "XmlRequest", None),
+                soap_response=getattr(self.padron, "XmlResponse", None),
+            )
+        return self.padron
+
+
+class PadronA4Service:
+    """Servicio para operaciones de WS-SR-PADRON A4 (Padrón Alcance 4)."""
+
+    def __init__(self, service_name: str = "ws_sr_padron_a4", env: str = "homo"):
+        self.service_name = service_name
+        self.env = env
+        self.padron = WSSrPadronA4()
+        self.wsdl = None
+        self._conectar()
+
+    def _conectar(self) -> None:
+        logger.info(f"Conectando PadronA4Service en ambiente: {self.env}")
+        ta = get_ticket_acceso(self.service_name, env=self.env)
+        self.padron.Cuit = settings.CUIT
+        self.padron.SetTicketAcceso(ta)
+
+        url_ws = settings.get_padron_a4_wsdl(self.env)
+        wsdl_path = _download_wsdl(url_ws)
+        self.wsdl = url_ws
+        logger.info(f"WSDL A4 descargado a: {wsdl_path}")
+
+        self.padron.Conectar(
+            cache=None,
+            wsdl=wsdl_path,
+            cacert=None,
+        )
+        logger.info("Conexión PadronA4Service establecida correctamente")
+
+    def consultar(self, id_persona: str) -> WSSrPadronA4:
+        id_persona = (id_persona or "").strip()
+        logger.info(f"Consultando padrón A4 para id_persona: {id_persona}")
+        id_persona_param = int(id_persona) if id_persona.isdigit() else id_persona
+        ok = self.padron.Consultar(id_persona_param)
+        if not ok:
+            logger.warning(f"Consulta padrón A4 fallida para id_persona: {id_persona}")
+            exc = getattr(self.padron, "Excepcion", "") or "Error en consulta padrón"
+            error_msg = str(exc)
+
+            if "No existe" in error_msg or "no existe" in error_msg.lower():
+                raise AFIPNotFoundError(
+                    message=error_msg,
+                    service=self.service_name,
+                    wsdl=self.wsdl,
+                    soap_request=getattr(self.padron, "XmlRequest", None),
+                    soap_response=getattr(self.padron, "XmlResponse", None),
+                )
             raise AFIPServiceError(
                 message=error_msg,
                 service=self.service_name,

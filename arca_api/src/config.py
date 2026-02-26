@@ -81,10 +81,12 @@ class Settings(BaseSettings):
     URL_WSAA: str = "https://wsaahomo.afip.gov.ar/ws/services/LoginCms?wsdl"
     URL_WSFEV1: str = "https://wswhomo.afip.gov.ar/wsfev1/service.asmx?WSDL"
     URL_PADRON_A5: str = "https://awshomo.afip.gov.ar/sr-padron/webservices/personaServiceA5?wsdl"
+    URL_PADRON_A4: str = "https://awshomo.afip.gov.ar/sr-padron/webservices/personaServiceA4?wsdl"
 
     URL_WSAA_PROD: str = "https://wsaa.afip.gov.ar/ws/services/LoginCms?wsdl"
     URL_WSFEV1_PROD: str = "https://servicios1.afip.gov.ar/wsfev1/service.asmx?WSDL"
     URL_PADRON_A5_PROD: str = "https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA5?wsdl"
+    URL_PADRON_A4_PROD: str = "https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA4?wsdl"
     
     # Paths de certificados (relativos al base_dir)
     # Almacenamos como string, las propiedades devuelven Path
@@ -229,6 +231,14 @@ class Settings(BaseSettings):
                 raise RuntimeError("Falta configurar URL_PADRON_A5_PROD en .env")
             return self.URL_PADRON_A5_PROD
         return self.URL_PADRON_A5
+
+    def get_padron_a4_wsdl(self, env: str) -> str:
+        """Obtiene la URL del WSDL de Padrón A4 según el ambiente"""
+        if env == "prod":
+            if not self.URL_PADRON_A4_PROD:
+                raise RuntimeError("Falta configurar URL_PADRON_A4_PROD en .env")
+            return self.URL_PADRON_A4_PROD
+        return self.URL_PADRON_A4
 
     def get_cert_paths(self, env: str) -> tuple[Path, Path]:
         """Obtiene los paths de certificado y clave privada según el ambiente"""
