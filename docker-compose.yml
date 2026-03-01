@@ -25,8 +25,8 @@ services:
       - SECRET_KEY=${JWT_SECRET_KEY}
       
       # Certificados homologación
-      - CERT_PATH=${CERT_PATH:-certs/homo/LIROpriv20260219homo2_crt.crt}
-      - KEY_PATH=${KEY_PATH:-certs/homo/LIROpriv20260219homo2.key}
+      - CERT_PATH=${CERT_PATH:-certs/homo/LIROpriv20260226homo3_CRT.crt}
+      - KEY_PATH=${KEY_PATH:-certs/homo/LIROpriv20260226homo3.key}
       
       # Certificados producción
       - PROD_CERT_PATH=${PROD_CERT_PATH:-certs/prod/LIROPRUEBASFACT20260919PROD2_4d6fbf9ef97dc5b6.crt}

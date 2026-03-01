@@ -58,6 +58,18 @@ class FacturaCreate(BaseModel):
     imp_trib: float = Field(default=0.0, description="Importe de tributos")
     imp_op_ex: float = Field(default=0.0, description="Importe de operaciones exentas")
     fecha_cbte: str = Field(..., description="Fecha del comprobante (YYYYMMDD)")
+    fecha_serv_desde: Optional[str] = Field(
+        None,
+        description="Fecha de inicio del servicio (YYYYMMDD). Obligatorio cuando concepto es 2 o 3."
+    )
+    fecha_serv_hasta: Optional[str] = Field(
+        None,
+        description="Fecha de fin del servicio (YYYYMMDD). Obligatorio cuando concepto es 2 o 3."
+    )
+    fecha_venc_pago: Optional[str] = Field(
+        None,
+        description="Fecha de vencimiento de pago (YYYYMMDD). Obligatorio cuando concepto es 2 o 3."
+    )
     moneda_id: str = Field(default="PES", description="Código de moneda (PES=Pesos, DOL=Dólar, EUR=Euro)")
     moneda_ctz: str = Field(default="1.0000", description="Cotización de moneda")
     condicion_iva_receptor_id: Optional[int] = Field(

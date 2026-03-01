@@ -157,6 +157,11 @@ class WSFEv1Service:
                     "Para tipo_doc=99 (Consumidor Final) usar: condicion_iva_receptor_id=5"
                 )
         
+        # Para concepto 2 o 3, AFIP exige FchServDesde, FchServHasta, FchVtoPago (formato YYYYMMDD)
+        fecha_serv_desde = getattr(factura, "fecha_serv_desde", None) or (factura.fecha_cbte if factura.concepto in (2, 3) else None)
+        fecha_serv_hasta = getattr(factura, "fecha_serv_hasta", None) or (factura.fecha_cbte if factura.concepto in (2, 3) else None)
+        fecha_venc_pago = getattr(factura, "fecha_venc_pago", None) or (factura.fecha_cbte if factura.concepto in (2, 3) else None)
+
         # Crear factura
         self.wsfev1.CrearFactura(
             concepto=factura.concepto,
@@ -173,6 +178,9 @@ class WSFEv1Service:
             imp_trib=factura.imp_trib,
             imp_op_ex=factura.imp_op_ex,
             fecha_cbte=factura.fecha_cbte,
+            fecha_serv_desde=fecha_serv_desde,
+            fecha_serv_hasta=fecha_serv_hasta,
+            fecha_venc_pago=fecha_venc_pago,
             moneda_id=factura.moneda_id,
             moneda_ctz=factura.moneda_ctz,
             condicion_iva_receptor_id=condicion_iva,

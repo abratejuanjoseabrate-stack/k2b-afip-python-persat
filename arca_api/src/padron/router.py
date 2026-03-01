@@ -1,7 +1,9 @@
 """
-Router de padrón - Endpoints REST para WS-SR-PADRON (A5)
-Router unificado que acepta ambiente (homo/prod) como parámetro
+Router de padrón - Endpoints REST para WS-SR-PADRON (A5).
+Cache de respuesta por (CUIT, env) con TTL 1h para reducir llamadas a AFIP.
 """
+import threading
+import time
 from fastapi import APIRouter, HTTPException, Query, Depends
 
 from .schemas import PadronA5Response, ImpuestoDetalle, ActividadDetalle
@@ -13,6 +15,11 @@ from ..shared.exceptions import AFIPError
 from ..shared.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# Cache de respuestas A5 por (id_persona, env) -> (dict respuesta, timestamp). TTL 1 hora.
+_PADRON_A5_RESPONSE_CACHE: dict[tuple[str, str], tuple[dict, float]] = {}
+_PADRON_A5_CACHE_LOCK = threading.Lock()
+_PADRON_A5_CACHE_TTL_SEC = 3600
 
 
 def _safe_text(value):
@@ -88,6 +95,36 @@ def _parse_actividades_detalladas(raw_data: dict) -> list:
 router = APIRouter(prefix="/api/v1/padron", tags=["padron"])
 
 
+def _build_padron_a5_response(id_persona: str, padron, datos: dict, domicilio: dict) -> PadronA5Response:
+    """Construye PadronA5Response desde el objeto padron y datos extraídos."""
+    return PadronA5Response(
+        id_persona=id_persona,
+        tipo_persona=datos.get("tipoPersona") or getattr(padron, "tipo_persona", None),
+        denominacion=datos.get("apellido") + ", " + datos.get("nombre") if datos.get("apellido") and datos.get("nombre") else getattr(padron, "denominacion", None),
+        estado=datos.get("estadoClave") or getattr(padron, "estado", None),
+        nombre=datos.get("nombre") or getattr(padron, "nombre", None),
+        apellido=datos.get("apellido") or getattr(padron, "apellido", None),
+        tipo_documento=datos.get("tipoClave") or getattr(padron, "tipo_documento", None),
+        numero_documento=str(datos.get("idPersona")) if datos.get("idPersona") else getattr(padron, "numero_documento", None),
+        fecha_inscripcion=_format_date(datos.get("fechaInscripcion")) or getattr(padron, "fecha_inscripcion", None),
+        fecha_contrato_social=_format_date(datos.get("fechaContratoSocial")) or getattr(padron, "fecha_contrato_social", None),
+        direccion=domicilio.get("direccion") or getattr(padron, "direccion", None),
+        localidad=domicilio.get("localidad") or getattr(padron, "localidad", None),
+        provincia=domicilio.get("descripcionProvincia") or getattr(padron, "provincia", None),
+        cod_postal=str(domicilio.get("codPostal") or getattr(padron, "cod_postal", "") or "") or None,
+        telefono=datos.get("telefono") or getattr(padron, "telefono", None),
+        email=datos.get("email") or getattr(padron, "email", None),
+        impuestos=list(getattr(padron, "impuestos", []) or []),
+        impuestos_detallados=_parse_impuestos_detallados(datos),
+        actividades=list(getattr(padron, "actividades", []) or []),
+        actividades_detalladas=_parse_actividades_detalladas(datos),
+        imp_iva=getattr(padron, "imp_iva", None),
+        monotributo=getattr(padron, "monotributo", None),
+        cat_iva=getattr(padron, "cat_iva", None),
+        raw=datos if isinstance(datos, dict) else {},
+    )
+
+
 @router.get("/a5", response_model=PadronA5Response)
 def consultar_padron_a5(
     id_persona: str = Query(..., description="CUIT/DNI a consultar (sin guiones)"),
@@ -97,52 +134,34 @@ def consultar_padron_a5(
 ):
     """
     Consulta padrón A5 (constancia) por CUIT/DNI.
-    
+    Respuestas OK se cachean 1h por (CUIT, env) para reducir llamadas a AFIP.
     **Requiere autenticación JWT** - Incluye header: `Authorization: Bearer <token>`
     """
-    logger.info(f"Usuario {current_user.email} (id={current_user.id}) consultando padrón para: {id_persona}")
-    debug_enabled = debug.lower() in ("true", "1")
-    try:
-        id_persona = (id_persona or "").strip()
-        padron = service.consultar(id_persona)
+    id_persona = (id_persona or "").strip()
+    cache_key = (id_persona, service.env)
+    now = time.time()
+    with _PADRON_A5_CACHE_LOCK:
+        if cache_key in _PADRON_A5_RESPONSE_CACHE:
+            data, ts = _PADRON_A5_RESPONSE_CACHE[cache_key]
+            if (now - ts) < _PADRON_A5_CACHE_TTL_SEC:
+                logger.info(f"Padrón A5 cache hit para {id_persona} env={service.env}")
+                return PadronA5Response(**data)
+            del _PADRON_A5_RESPONSE_CACHE[cache_key]
 
+    logger.info(f"Usuario {current_user.email} (id={current_user.id}) consultando padrón para: {id_persona}")
+    try:
+        padron = service.consultar(id_persona)
         raw = {}
         try:
             raw = getattr(padron, "data", {}) or {}
         except Exception:
             raw = {}
-
-        # Extraer datos desde raw (donde están los datos reales de AFIP)
         datos = raw if isinstance(raw, dict) else {}
         domicilio = datos.get("domicilioFiscal", {}) if isinstance(datos.get("domicilioFiscal"), dict) else {}
-
-        return PadronA5Response(
-            id_persona=id_persona,
-            tipo_persona=datos.get("tipoPersona") or getattr(padron, "tipo_persona", None),
-            denominacion=datos.get("apellido") + ", " + datos.get("nombre") if datos.get("apellido") and datos.get("nombre") else getattr(padron, "denominacion", None),
-            estado=datos.get("estadoClave") or getattr(padron, "estado", None),
-            nombre=datos.get("nombre") or getattr(padron, "nombre", None),
-            apellido=datos.get("apellido") or getattr(padron, "apellido", None),
-            tipo_documento=datos.get("tipoClave") or getattr(padron, "tipo_documento", None),
-            numero_documento=str(datos.get("idPersona")) if datos.get("idPersona") else getattr(padron, "numero_documento", None),
-            fecha_inscripcion=_format_date(datos.get("fechaInscripcion")) or getattr(padron, "fecha_inscripcion", None),
-            fecha_contrato_social=_format_date(datos.get("fechaContratoSocial")) or getattr(padron, "fecha_contrato_social", None),
-            direccion=domicilio.get("direccion") or getattr(padron, "direccion", None),
-            localidad=domicilio.get("localidad") or getattr(padron, "localidad", None),
-            provincia=domicilio.get("descripcionProvincia") or getattr(padron, "provincia", None),
-            cod_postal=str(domicilio.get("codPostal") or getattr(padron, "cod_postal", "") or "") or None,
-            telefono=datos.get("telefono") or getattr(padron, "telefono", None),
-            email=datos.get("email") or getattr(padron, "email", None),
-            impuestos=list(getattr(padron, "impuestos", []) or []),
-            impuestos_detallados=_parse_impuestos_detallados(datos),
-            actividades=list(getattr(padron, "actividades", []) or []),
-            actividades_detalladas=_parse_actividades_detalladas(datos),
-            imp_iva=getattr(padron, "imp_iva", None),
-            monotributo=getattr(padron, "monotributo", None),
-            cat_iva=getattr(padron, "cat_iva", None),
-            raw=raw,
-        )
-
+        resp = _build_padron_a5_response(id_persona, padron, datos, domicilio)
+        with _PADRON_A5_CACHE_LOCK:
+            _PADRON_A5_RESPONSE_CACHE[cache_key] = (resp.model_dump(), time.time())
+        return resp
     except HTTPException:
         raise
     except AFIPError:

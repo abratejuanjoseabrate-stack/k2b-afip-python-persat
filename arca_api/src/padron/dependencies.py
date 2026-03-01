@@ -1,9 +1,16 @@
 """
-Dependencies para el router de padrón
-Usa Dependency Injection de FastAPI para inyectar servicios
+Dependencies para el router de padrón.
+Singleton por ambiente: una sola instancia de PadronA5Service por env para no reconectar en cada request.
 """
+import threading
 from fastapi import Depends, Query, HTTPException
 from .service import PadronA4Service, PadronA5Service
+
+_padron_a5_instances: dict[str, PadronA5Service] = {}
+_padron_a5_lock = threading.Lock()
+
+_padron_a4_instances: dict[str, PadronA4Service] = {}
+_padron_a4_lock = threading.Lock()
 
 
 def _get_env(env: str = Query("homo", description="Ambiente: 'homo' (homologación) o 'prod' (producción)")) -> str:
@@ -15,15 +22,19 @@ def _get_env(env: str = Query("homo", description="Ambiente: 'homo' (homologaci�
 
 def get_padron_service(env: str = Depends(_get_env)) -> PadronA5Service:
     """
-    Dependency para obtener una instancia de PadronA5Service
-
-    FastAPI inyecta automáticamente el servicio en los endpoints que lo requieran.
+    Una instancia de PadronA5Service por ambiente (singleton). Evita descargar WSDL y reconectar en cada request.
     """
-    return PadronA5Service(env=env)
+    with _padron_a5_lock:
+        if env not in _padron_a5_instances:
+            _padron_a5_instances[env] = PadronA5Service(env=env)
+        return _padron_a5_instances[env]
 
 
 def get_padron_a4_service(env: str = Depends(_get_env)) -> PadronA4Service:
     """
-    Dependency para obtener una instancia de PadronA4Service (Padrón Alcance 4).
+    Una instancia de PadronA4Service por ambiente (singleton).
     """
-    return PadronA4Service(env=env)
+    with _padron_a4_lock:
+        if env not in _padron_a4_instances:
+            _padron_a4_instances[env] = PadronA4Service(env=env)
+        return _padron_a4_instances[env]
