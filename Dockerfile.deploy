@@ -44,8 +44,8 @@ COPY arca_api/ .
 # Eliminar .env si existe (usaremos variables de entorno)
 RUN rm -f .env 2>/dev/null || true
 
-# Crear directorios necesarios
-RUN mkdir -p cache/homo cache/prod logs certs/homo certs/prod
+# Crear directorios necesarios (certs se montan por volumen; data para SQLite)
+RUN mkdir -p cache/homo cache/prod logs certs/homo certs/prod data
 
 # Puerto del servicio
 EXPOSE 8000
