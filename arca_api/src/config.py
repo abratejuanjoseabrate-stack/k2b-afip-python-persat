@@ -68,6 +68,12 @@ class Settings(BaseSettings):
         description="Tiempo de expiración del access token en minutos"
     )
 
+    # Usuario de servicio para llamadas server-to-server (ej. backenBasicoPersat → padrón).
+    # Si la tabla users está vacía y estos están definidos, se crea este usuario al arrancar.
+    # Usar las mismas credenciales en el backend que hace proxy (AFIP_SERVICE_EMAIL / AFIP_SERVICE_PASSWORD).
+    PADRON_SERVICE_EMAIL: str = Field(default="", description="Email del usuario de servicio (seed si no hay users)")
+    PADRON_SERVICE_PASSWORD: str = Field(default="", description="Contraseña del usuario de servicio (seed)")
+
     # Debug
     AFIP_DEBUG_WSAA: bool = False
     

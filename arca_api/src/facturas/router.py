@@ -1,13 +1,13 @@
 """
 Router de facturas - Endpoints REST para WSFEv1
 Router unificado que acepta ambiente (homo/prod) como parámetro
+
+Nota: Este microservicio es interno, los endpoints no requieren autenticación JWT.
 """
 from fastapi import APIRouter, HTTPException, Query, Depends, status
 from fastapi.responses import Response
 from .service import WSFEv1Service
 from .dependencies import get_wsfev1_service
-from ..auth.dependencies import get_current_user
-from ..auth.models import User
 from ..config import settings
 from ..shared.exceptions import AFIPValidationError
 from ..shared.logging_config import get_logger
@@ -35,7 +35,6 @@ router = APIRouter(prefix="/api/v1/facturas", tags=["facturas"])
 @router.post("", response_model=FacturaResponse, status_code=status.HTTP_201_CREATED)
 def crear_factura(
     factura: FacturaCreate,
-    current_user: User = Depends(get_current_user),
     service: WSFEv1Service = Depends(get_wsfev1_service)
 ):
     """
@@ -90,7 +89,7 @@ def crear_factura(
     }
     ```
     """
-    logger.info(f"Usuario {current_user.email} (id={current_user.id}) creando factura tipo {factura.tipo_cbte}")
+    logger.info(f"Creando factura tipo {factura.tipo_cbte} (endpoint interno)")
     try:
         response = service.emitir_factura(factura)
         
@@ -119,7 +118,6 @@ def crear_factura(
 @router.post("/c", response_model=FacturaResponse, status_code=status.HTTP_201_CREATED)
 def crear_factura_c(
     factura: FacturaCCreate,
-    current_user: User = Depends(get_current_user),
     service: WSFEv1Service = Depends(get_wsfev1_service)
 ):
     """Crea una Factura C (tipo_cbte=11) y obtiene el CAE.
@@ -156,7 +154,7 @@ def crear_factura_c(
     - Si AFIP aprueba, se retorna `cae`, `vencimiento` y datos del comprobante.
     - Si AFIP rechaza, se retorna HTTP 422 con `obs`/`err_msg`.
     """
-    logger.info(f"Usuario {current_user.email} (id={current_user.id}) creando factura C")
+    logger.info(f"Creando factura C (endpoint interno)")
     try:
         response = service.emitir_factura_c(factura)
 

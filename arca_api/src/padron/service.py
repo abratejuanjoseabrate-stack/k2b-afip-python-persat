@@ -105,9 +105,9 @@ class PadronA5Service:
             logger.info(f"Consultando padrón A5 para id_persona: {id_persona}")
             ok = self.padron.Consultar(id_persona_param)
         if not ok:
-            logger.warning(f"Consulta padrón fallida para id_persona: {id_persona}")
             exc = getattr(self.padron, "Excepcion", "") or "Error en consulta padrón"
             error_msg = str(exc)
+            logger.warning(f"Consulta padrón fallida para id_persona: {id_persona} — {error_msg}")
             
             # Detectar si es un error de "no encontrado"
             if "No existe persona con ese Id" in error_msg or "no existe" in error_msg.lower():
@@ -163,9 +163,9 @@ class PadronA4Service:
         id_persona_param = int(id_persona) if id_persona.isdigit() else id_persona
         ok = self.padron.Consultar(id_persona_param)
         if not ok:
-            logger.warning(f"Consulta padrón A4 fallida para id_persona: {id_persona}")
             exc = getattr(self.padron, "Excepcion", "") or "Error en consulta padrón"
             error_msg = str(exc)
+            logger.warning(f"Consulta padrón A4 fallida para id_persona: {id_persona} — {error_msg}")
 
             if "No existe" in error_msg or "no existe" in error_msg.lower():
                 raise AFIPNotFoundError(

@@ -58,11 +58,30 @@ async def lifespan(app: FastAPI):
     logger.info(f"Cache path: {cache_path}")
     
     # Crear tablas de base de datos si no existen
-    from .database import engine, Base
+    from .database import engine, Base, async_session
+    from sqlalchemy import select
     async with engine.begin() as conn:
         logger.info("Creando tablas de base de datos si no existen...")
         await conn.run_sync(Base.metadata.create_all)
         logger.info("Tablas de base de datos verificadas/creadas")
+
+    # Seed: si no hay usuarios y están definidos PADRON_SERVICE_EMAIL/PASSWORD, crear usuario de servicio
+    email = (settings.PADRON_SERVICE_EMAIL or "").strip()
+    password = (settings.PADRON_SERVICE_PASSWORD or "").strip()
+    if email and password:
+        from .auth.models import User
+        from .auth.service import hash_password
+        async with async_session() as session:
+            result = await session.execute(select(User).limit(1))
+            if result.scalar_one_or_none() is None:
+                user = User(
+                    email=email,
+                    hashed_password=hash_password(password),
+                    is_active=True,
+                )
+                session.add(user)
+                await session.commit()
+                logger.info("Usuario de servicio creado (email=%s) para proxy de padrón", email)
     
     logger.info("Aplicación lista")
     

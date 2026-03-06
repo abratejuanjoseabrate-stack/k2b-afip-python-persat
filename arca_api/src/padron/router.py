@@ -9,8 +9,6 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from .schemas import PadronA5Response, ImpuestoDetalle, ActividadDetalle
 from .service import PadronA4Service, PadronA5Service
 from .dependencies import get_padron_service, get_padron_a4_service
-from ..auth.dependencies import get_current_user
-from ..auth.models import User
 from ..shared.exceptions import AFIPError
 from ..shared.logging_config import get_logger
 
@@ -129,13 +127,12 @@ def _build_padron_a5_response(id_persona: str, padron, datos: dict, domicilio: d
 def consultar_padron_a5(
     id_persona: str = Query(..., description="CUIT/DNI a consultar (sin guiones)"),
     debug: str = Query("false", description="Devuelve request/response SOAP completos (solo debugging): true/1"),
-    current_user: User = Depends(get_current_user),
     service: PadronA5Service = Depends(get_padron_service)
 ):
     """
     Consulta padrón A5 (constancia) por CUIT/DNI.
     Respuestas OK se cachean 1h por (CUIT, env) para reducir llamadas a AFIP.
-    **Requiere autenticación JWT** - Incluye header: `Authorization: Bearer <token>`
+    Uso interno: no requiere autenticación (servicio llamado desde backenBasicoPersat).
     """
     id_persona = (id_persona or "").strip()
     cache_key = (id_persona, service.env)
@@ -148,7 +145,7 @@ def consultar_padron_a5(
                 return PadronA5Response(**data)
             del _PADRON_A5_RESPONSE_CACHE[cache_key]
 
-    logger.info(f"Usuario {current_user.email} (id={current_user.id}) consultando padrón para: {id_persona}")
+    logger.info(f"Padrón A5 consulta para: {id_persona}")
     try:
         padron = service.consultar(id_persona)
         raw = {}
@@ -174,18 +171,16 @@ def consultar_padron_a5(
 def consultar_padron_a4(
     id_persona: str = Query(..., description="CUIT/DNI a consultar (sin guiones)"),
     debug: str = Query("false", description="Devuelve request/response SOAP completos (solo debugging): true/1"),
-    current_user: User = Depends(get_current_user),
     service: PadronA4Service = Depends(get_padron_a4_service)
 ):
     """
     Consulta padrón A4 (Padrón Alcance 4) por CUIT/DNI.
-
-    **Requiere autenticación JWT** - Incluye header: `Authorization: Bearer <token>`
+    Uso interno: no requiere autenticación.
 
     Use query **env** para elegir ambiente: `homo` (homologación) o `prod` (producción).
     Ejemplo: `/api/v1/padron/a4?id_persona=20123456789&env=prod`
     """
-    logger.info(f"Usuario {current_user.email} (id={current_user.id}) consultando padrón A4 para: {id_persona}")
+    logger.info(f"Padrón A4 consulta para: {id_persona}")
     try:
         id_persona = (id_persona or "").strip()
         padron = service.consultar(id_persona)
