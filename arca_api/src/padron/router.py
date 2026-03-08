@@ -148,11 +148,7 @@ def consultar_padron_a5(
     logger.info(f"Padrón A5 consulta para: {id_persona}")
     try:
         padron = service.consultar(id_persona)
-        raw = {}
-        try:
-            raw = getattr(padron, "data", {}) or {}
-        except Exception:
-            raw = {}
+        raw = getattr(padron, "data", {}) or {}
         datos = raw if isinstance(raw, dict) else {}
         domicilio = datos.get("domicilioFiscal", {}) if isinstance(datos.get("domicilioFiscal"), dict) else {}
         resp = _build_padron_a5_response(id_persona, padron, datos, domicilio)

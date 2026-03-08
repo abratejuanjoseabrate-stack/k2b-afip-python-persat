@@ -2,6 +2,7 @@
 Wrapper de pyafipws.wsaa para autenticación AFIP
 Gestiona tickets de acceso (TA) con caché
 """
+import os
 from pyafipws.wsaa import WSAA
 from ..config import settings
 from .logging_config import get_logger
@@ -118,3 +119,29 @@ def get_token_sign(service: str = "wsfe", env: str = "homo") -> tuple[str, str]:
     
     logger.debug("Token y Sign obtenidos exitosamente")
     return token, sign
+
+
+def invalidar_cache_ta(env: str = "homo") -> int:
+    """
+    Borra los archivos de caché de tickets de acceso (TA) para el ambiente dado.
+    Útil cuando AFIP devuelve "El token ha expirado": al borrar el caché,
+    la próxima llamada a get_ticket_acceso() solicitará un TA nuevo a AFIP.
+
+    Args:
+        env: Ambiente ("homo" o "prod")
+
+    Returns:
+        Número de archivos eliminados
+    """
+    cache_path = settings.get_cache_path(env)
+    if not cache_path.exists():
+        return 0
+    removed = 0
+    for f in cache_path.glob("TA-*.xml"):
+        try:
+            os.remove(f)
+            removed += 1
+            logger.info(f"Caché TA invalidado: eliminado {f.name} (env={env})")
+        except OSError as e:
+            logger.warning(f"No se pudo eliminar {f}: {e}")
+    return removed

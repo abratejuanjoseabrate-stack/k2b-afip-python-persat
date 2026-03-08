@@ -11,6 +11,7 @@ from pyafipws.ws_sr_padron import WSSrPadronA4, WSSrPadronA5
 
 from ..config import settings
 from ..shared.afip_auth import get_ticket_acceso
+from ..shared.afip_retry import is_token_expirado_error, invalidar_y_reconectar
 from ..shared.exceptions import (
     AFIPConnectionError,
     AFIPNotFoundError,
@@ -99,35 +100,40 @@ class PadronA5Service:
         logger.info("Conexión PadronA5Service establecida correctamente")
 
     def consultar(self, id_persona: str) -> WSSrPadronA5:
+        """Consulta padrón A5. Reintento automático una vez si AFIP devuelve token expirado."""
         id_persona = (id_persona or "").strip()
         id_persona_param = int(id_persona) if id_persona.isdigit() else id_persona
-        with self._lock:
-            logger.info(f"Consultando padrón A5 para id_persona: {id_persona}")
-            ok = self.padron.Consultar(id_persona_param)
-        if not ok:
-            exc = getattr(self.padron, "Excepcion", "") or "Error en consulta padrón"
-            error_msg = str(exc)
-            logger.warning(f"Consulta padrón fallida para id_persona: {id_persona} — {error_msg}")
-            
-            # Detectar si es un error de "no encontrado"
-            if "No existe persona con ese Id" in error_msg or "no existe" in error_msg.lower():
-                raise AFIPNotFoundError(
+        for attempt in range(2):
+            with self._lock:
+                logger.info(f"Consultando padrón A5 para id_persona: {id_persona}")
+                ok = self.padron.Consultar(id_persona_param)
+            if not ok:
+                exc = getattr(self.padron, "Excepcion", "") or "Error en consulta padrón"
+                error_msg = str(exc)
+                logger.warning(f"Consulta padrón fallida para id_persona: {id_persona} — {error_msg}")
+
+                if attempt == 0 and is_token_expirado_error(Exception(error_msg)):
+                    logger.warning("Token AFIP expirado (Padrón A5), invalidando caché y reintentando: %s", error_msg)
+                    invalidar_y_reconectar(self.env)
+                    self._conectar()
+                    continue
+
+                if "No existe persona con ese Id" in error_msg or "no existe" in error_msg.lower():
+                    raise AFIPNotFoundError(
+                        message=error_msg,
+                        service=self.service_name,
+                        wsdl=self.wsdl,
+                        soap_request=getattr(self.padron, "XmlRequest", None),
+                        soap_response=getattr(self.padron, "XmlResponse", None),
+                    )
+                raise AFIPServiceError(
                     message=error_msg,
                     service=self.service_name,
                     wsdl=self.wsdl,
                     soap_request=getattr(self.padron, "XmlRequest", None),
                     soap_response=getattr(self.padron, "XmlResponse", None),
                 )
-            
-            # Otros errores de servicio
-            raise AFIPServiceError(
-                message=error_msg,
-                service=self.service_name,
-                wsdl=self.wsdl,
-                soap_request=getattr(self.padron, "XmlRequest", None),
-                soap_response=getattr(self.padron, "XmlResponse", None),
-            )
-        return self.padron
+            return self.padron
 
 
 class PadronA4Service:

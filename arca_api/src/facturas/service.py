@@ -4,6 +4,7 @@ Wrapper de pyafipws.wsfev1 para facturación electrónica
 from pyafipws.wsfev1 import WSFEv1
 from ..config import settings
 from ..shared.afip_auth import get_ticket_acceso
+from ..shared.afip_retry import is_token_expirado_error, invalidar_y_reconectar
 from ..shared.exceptions import (
     AFIPConnectionError,
     AFIPServiceError,
@@ -118,228 +119,226 @@ class WSFEv1Service:
 
     def emitir_factura(self, factura: FacturaCreate) -> FacturaResponse:
         """
-        Emite una factura electrónica
-        
-        Args:
-            factura: Datos de la factura
-        
-        Returns:
-            Response con CAE y datos de la factura emitida
-        
-        Raises:
-            Exception: Si falla la emisión
+        Emite una factura electrónica.
+        Reintento automático una vez si AFIP devuelve token expirado (global en servicio).
         """
-        # Obtener último autorizado
-        ultimo = self.obtener_ultimo_autorizado(factura.tipo_cbte, factura.punto_vta)
-        # Si ultimo es 0, significa que no hay comprobantes previos, el siguiente es 1
-        cbte_nro = ultimo + 1
-        
-        logger.info(
-            f"Emitiendo factura - Tipo: {factura.tipo_cbte}, "
-            f"Punto Vta: {factura.punto_vta}, "
-            f"Último autorizado: {ultimo}, "
-            f"Siguiente número: {cbte_nro}, "
-            f"Fecha: {factura.fecha_cbte}"
-        )
-        
-        # Determinar condicion_iva_receptor_id
-        # Si no se especifica, usar valor por defecto según tipo_doc
-        # 5 = Consumidor Final (para tipo_doc=99)
-        condicion_iva = factura.condicion_iva_receptor_id
-        if condicion_iva is None:
-            if factura.tipo_doc == 99:
-                # Consumidor Final → Condición IVA 5
-                condicion_iva = 5
-            else:
-                # Para otros tipos de documento, requerir explícitamente
-                raise ValueError(
-                    "condicion_iva_receptor_id es obligatorio según RG 5616. "
-                    "Para tipo_doc=99 (Consumidor Final) usar: condicion_iva_receptor_id=5"
-                )
-        
-        # Para concepto 2 o 3, AFIP exige FchServDesde, FchServHasta, FchVtoPago (formato YYYYMMDD)
-        fecha_serv_desde = getattr(factura, "fecha_serv_desde", None) or (factura.fecha_cbte if factura.concepto in (2, 3) else None)
-        fecha_serv_hasta = getattr(factura, "fecha_serv_hasta", None) or (factura.fecha_cbte if factura.concepto in (2, 3) else None)
-        fecha_venc_pago = getattr(factura, "fecha_venc_pago", None) or (factura.fecha_cbte if factura.concepto in (2, 3) else None)
+        for attempt in range(2):
+            try:
+                ultimo = self.obtener_ultimo_autorizado(factura.tipo_cbte, factura.punto_vta)
+                cbte_nro = ultimo + 1
 
-        # Crear factura
-        self.wsfev1.CrearFactura(
-            concepto=factura.concepto,
-            tipo_doc=factura.tipo_doc,
-            nro_doc=factura.nro_doc,
-            tipo_cbte=factura.tipo_cbte,
-            punto_vta=factura.punto_vta,
-            cbt_desde=cbte_nro,
-            cbt_hasta=cbte_nro,
-            imp_total=factura.imp_total,
-            imp_tot_conc=factura.imp_tot_conc,
-            imp_neto=factura.imp_neto,
-            imp_iva=factura.imp_iva,
-            imp_trib=factura.imp_trib,
-            imp_op_ex=factura.imp_op_ex,
-            fecha_cbte=factura.fecha_cbte,
-            fecha_serv_desde=fecha_serv_desde,
-            fecha_serv_hasta=fecha_serv_hasta,
-            fecha_venc_pago=fecha_venc_pago,
-            moneda_id=factura.moneda_id,
-            moneda_ctz=factura.moneda_ctz,
-            condicion_iva_receptor_id=condicion_iva,
-        )
-
-        if float(factura.imp_neto or 0) > 0:
-            if not factura.iva:
-                raise ValueError(
-                    "Si imp_neto > 0, AFIP requiere enviar el objeto IVA (campo 'iva') con alícuotas. "
-                    "Ejemplo: iva=[{iva_id: 5, base_imp: 100.0, importe: 21.0}]"
-                )
-            for alic in factura.iva:
-                self.wsfev1.AgregarIva(
-                    iva_id=alic.iva_id,
-                    base_imp=alic.base_imp,
-                    importe=alic.importe,
+                logger.info(
+                    f"Emitiendo factura - Tipo: {factura.tipo_cbte}, "
+                    f"Punto Vta: {factura.punto_vta}, "
+                    f"Último autorizado: {ultimo}, "
+                    f"Siguiente número: {cbte_nro}, "
+                    f"Fecha: {factura.fecha_cbte}"
                 )
 
-        # Agregar comprobantes asociados (obligatorio para NC/ND)
-        if factura.cbtes_asoc:
-            for cbte_asoc in factura.cbtes_asoc:
-                self.wsfev1.AgregarCmpAsoc(
-                    tipo=cbte_asoc.tipo,
-                    pto_vta=cbte_asoc.pto_vta,
-                    nro=cbte_asoc.nro,
-                    cuit=cbte_asoc.cuit if cbte_asoc.cuit else None,
-                    fecha=cbte_asoc.fecha if cbte_asoc.fecha else None
+                condicion_iva = factura.condicion_iva_receptor_id
+                if condicion_iva is None:
+                    if factura.tipo_doc == 99:
+                        condicion_iva = 5
+                    else:
+                        raise ValueError(
+                            "condicion_iva_receptor_id es obligatorio según RG 5616. "
+                            "Para tipo_doc=99 (Consumidor Final) usar: condicion_iva_receptor_id=5"
+                        )
+
+                fecha_serv_desde = getattr(factura, "fecha_serv_desde", None) or (factura.fecha_cbte if factura.concepto in (2, 3) else None)
+                fecha_serv_hasta = getattr(factura, "fecha_serv_hasta", None) or (factura.fecha_cbte if factura.concepto in (2, 3) else None)
+                fecha_venc_pago = getattr(factura, "fecha_venc_pago", None) or (factura.fecha_cbte if factura.concepto in (2, 3) else None)
+
+                self.wsfev1.CrearFactura(
+                    concepto=factura.concepto,
+                    tipo_doc=factura.tipo_doc,
+                    nro_doc=factura.nro_doc,
+                    tipo_cbte=factura.tipo_cbte,
+                    punto_vta=factura.punto_vta,
+                    cbt_desde=cbte_nro,
+                    cbt_hasta=cbte_nro,
+                    imp_total=factura.imp_total,
+                    imp_tot_conc=factura.imp_tot_conc,
+                    imp_neto=factura.imp_neto,
+                    imp_iva=factura.imp_iva,
+                    imp_trib=factura.imp_trib,
+                    imp_op_ex=factura.imp_op_ex,
+                    fecha_cbte=factura.fecha_cbte,
+                    fecha_serv_desde=fecha_serv_desde,
+                    fecha_serv_hasta=fecha_serv_hasta,
+                    fecha_venc_pago=fecha_venc_pago,
+                    moneda_id=factura.moneda_id,
+                    moneda_ctz=factura.moneda_ctz,
+                    condicion_iva_receptor_id=condicion_iva,
                 )
-        
-        # Solicitar CAE
-        cae = self.wsfev1.CAESolicitar()
-        
-        # Extraer TODA la información disponible de la respuesta de AFIP
-        resultado = getattr(self.wsfev1, "Resultado", "")
-        vencimiento = getattr(self.wsfev1, "Vencimiento", "")
-        cbte_nro_resp = getattr(self.wsfev1, "CbteNro", None)
-        fecha_cbte = getattr(self.wsfev1, "FechaCbte", None)
-        emision_tipo = getattr(self.wsfev1, "EmisionTipo", None)
-        punto_venta = getattr(self.wsfev1, "PuntoVenta", None)
-        cbt_desde = getattr(self.wsfev1, "CbtDesde", None)
-        cbt_hasta = getattr(self.wsfev1, "CbtHasta", None)
-        reproceso = getattr(self.wsfev1, "Reproceso", None)
-        obs = getattr(self.wsfev1, "Obs", []) or []
-        err_msg = getattr(self.wsfev1, "ErrMsg", None)
-        err_code = getattr(self.wsfev1, "ErrCode", None)
-        
-        # Convertir obs a lista de strings si es necesario
-        if obs and isinstance(obs, str):
-            obs = [obs]
-        
-        # Convertir fechas vacías a None
-        fecha_cbte = fecha_cbte if fecha_cbte else None
-        vencimiento = vencimiento if vencimiento else None
-        
-        return FacturaResponse(
-            resultado=resultado,
-            cae=str(cae) if cae else None,
-            vencimiento=vencimiento,
-            cbte_nro=cbte_nro_resp if cbte_nro_resp is not None else cbte_nro,
-            fecha_cbte=fecha_cbte,
-            emision_tipo=emision_tipo,
-            punto_venta=int(punto_venta) if punto_venta is not None else factura.punto_vta,
-            cbt_desde=int(cbt_desde) if cbt_desde is not None else None,
-            cbt_hasta=int(cbt_hasta) if cbt_hasta is not None else None,
-            tipo_cbte=factura.tipo_cbte,  # Del request original
-            reproceso=reproceso if reproceso else None,
-            obs=obs if isinstance(obs, list) else [],
-            err_msg=err_msg,
-            err_code=str(err_code) if err_code else None
-        )
+
+                if float(factura.imp_neto or 0) > 0:
+                    if not factura.iva:
+                        raise ValueError(
+                            "Si imp_neto > 0, AFIP requiere enviar el objeto IVA (campo 'iva') con alícuotas. "
+                            "Ejemplo: iva=[{iva_id: 5, base_imp: 100.0, importe: 21.0}]"
+                        )
+                    for alic in factura.iva:
+                        self.wsfev1.AgregarIva(
+                            iva_id=alic.iva_id,
+                            base_imp=alic.base_imp,
+                            importe=alic.importe,
+                        )
+
+                if factura.cbtes_asoc:
+                    for cbte_asoc in factura.cbtes_asoc:
+                        self.wsfev1.AgregarCmpAsoc(
+                            tipo=cbte_asoc.tipo,
+                            pto_vta=cbte_asoc.pto_vta,
+                            nro=cbte_asoc.nro,
+                            cuit=cbte_asoc.cuit if cbte_asoc.cuit else None,
+                            fecha=cbte_asoc.fecha if cbte_asoc.fecha else None
+                        )
+
+                cae = self.wsfev1.CAESolicitar()
+
+                excepcion = getattr(self.wsfev1, "Excepcion", None)
+                if excepcion and attempt == 0 and is_token_expirado_error(Exception(str(excepcion))):
+                    logger.warning("Token AFIP expirado (WSFE), invalidando caché y reintentando: %s", excepcion)
+                    invalidar_y_reconectar(self.env)
+                    self._conectar()
+                    continue
+
+                resultado = getattr(self.wsfev1, "Resultado", "")
+                vencimiento = getattr(self.wsfev1, "Vencimiento", "")
+                cbte_nro_resp = getattr(self.wsfev1, "CbteNro", None)
+                fecha_cbte = getattr(self.wsfev1, "FechaCbte", None)
+                emision_tipo = getattr(self.wsfev1, "EmisionTipo", None)
+                punto_venta = getattr(self.wsfev1, "PuntoVenta", None)
+                cbt_desde = getattr(self.wsfev1, "CbtDesde", None)
+                cbt_hasta = getattr(self.wsfev1, "CbtHasta", None)
+                reproceso = getattr(self.wsfev1, "Reproceso", None)
+                obs = getattr(self.wsfev1, "Obs", []) or []
+                err_msg = getattr(self.wsfev1, "ErrMsg", None)
+                err_code = getattr(self.wsfev1, "ErrCode", None)
+                if obs and isinstance(obs, str):
+                    obs = [obs]
+                fecha_cbte = fecha_cbte if fecha_cbte else None
+                vencimiento = vencimiento if vencimiento else None
+
+                return FacturaResponse(
+                    resultado=resultado,
+                    cae=str(cae) if cae else None,
+                    vencimiento=vencimiento,
+                    cbte_nro=cbte_nro_resp if cbte_nro_resp is not None else cbte_nro,
+                    fecha_cbte=fecha_cbte,
+                    emision_tipo=emision_tipo,
+                    punto_venta=int(punto_venta) if punto_venta is not None else factura.punto_vta,
+                    cbt_desde=int(cbt_desde) if cbt_desde is not None else None,
+                    cbt_hasta=int(cbt_hasta) if cbt_hasta is not None else None,
+                    tipo_cbte=factura.tipo_cbte,
+                    reproceso=reproceso if reproceso else None,
+                    obs=obs if isinstance(obs, list) else [],
+                    err_msg=err_msg,
+                    err_code=str(err_code) if err_code else None
+                )
+            except Exception as e:
+                if attempt == 1 or not is_token_expirado_error(e):
+                    raise
+                logger.warning("Token AFIP expirado (WSFE), invalidando caché y reintentando: %s", e)
+                invalidar_y_reconectar(self.env)
+                self._conectar()
     
     def emitir_factura_c(self, factura: FacturaCCreate) -> FacturaResponse:
-        """Emite una Factura C (tipo_cbte=11)"""
+        """Emite una Factura C (tipo_cbte=11). Reintento automático si token expirado."""
         tipo_cbte = 11
+        for attempt in range(2):
+            try:
+                ultimo = self.obtener_ultimo_autorizado(tipo_cbte, factura.punto_vta)
+                cbte_nro = ultimo + 1
 
-        # Obtener último autorizado
-        ultimo = self.obtener_ultimo_autorizado(tipo_cbte, factura.punto_vta)
-        # Si ultimo es 0, significa que no hay comprobantes previos, el siguiente es 1
-        cbte_nro = ultimo + 1
-        
-        logger.info(
-            f"Emitiendo Factura C - Tipo: {tipo_cbte}, "
-            f"Punto Vta: {factura.punto_vta}, "
-            f"Último autorizado: {ultimo}, "
-            f"Siguiente número: {cbte_nro}, "
-            f"Fecha: {factura.fecha_cbte}"
-        )
-
-        # Condición IVA receptor: por defecto Consumidor Final (5)
-        condicion_iva = factura.condicion_iva_receptor_id
-        if condicion_iva is None:
-            if factura.tipo_doc == 99:
-                condicion_iva = 5
-            else:
-                raise ValueError(
-                    "condicion_iva_receptor_id es obligatorio según RG 5616. "
-                    "Para tipo_doc=99 (Consumidor Final) usar: condicion_iva_receptor_id=5"
+                logger.info(
+                    f"Emitiendo Factura C - Tipo: {tipo_cbte}, "
+                    f"Punto Vta: {factura.punto_vta}, "
+                    f"Último autorizado: {ultimo}, "
+                    f"Siguiente número: {cbte_nro}, "
+                    f"Fecha: {factura.fecha_cbte}"
                 )
 
-        # Factura C típicamente no discrimina IVA en la cabecera
-        imp_iva = 0.0
+                condicion_iva = factura.condicion_iva_receptor_id
+                if condicion_iva is None:
+                    if factura.tipo_doc == 99:
+                        condicion_iva = 5
+                    else:
+                        raise ValueError(
+                            "condicion_iva_receptor_id es obligatorio según RG 5616. "
+                            "Para tipo_doc=99 (Consumidor Final) usar: condicion_iva_receptor_id=5"
+                        )
 
-        self.wsfev1.CrearFactura(
-            concepto=factura.concepto,
-            tipo_doc=factura.tipo_doc,
-            nro_doc=factura.nro_doc,
-            tipo_cbte=tipo_cbte,
-            punto_vta=factura.punto_vta,
-            cbt_desde=cbte_nro,
-            cbt_hasta=cbte_nro,
-            imp_total=factura.imp_total,
-            imp_tot_conc=factura.imp_tot_conc,
-            imp_neto=factura.imp_neto,
-            imp_iva=imp_iva,
-            imp_trib=factura.imp_trib,
-            imp_op_ex=factura.imp_op_ex,
-            fecha_cbte=factura.fecha_cbte,
-            moneda_id=factura.moneda_id,
-            moneda_ctz=factura.moneda_ctz,
-            condicion_iva_receptor_id=condicion_iva,
-        )
+                imp_iva = 0.0
+                self.wsfev1.CrearFactura(
+                    concepto=factura.concepto,
+                    tipo_doc=factura.tipo_doc,
+                    nro_doc=factura.nro_doc,
+                    tipo_cbte=tipo_cbte,
+                    punto_vta=factura.punto_vta,
+                    cbt_desde=cbte_nro,
+                    cbt_hasta=cbte_nro,
+                    imp_total=factura.imp_total,
+                    imp_tot_conc=factura.imp_tot_conc,
+                    imp_neto=factura.imp_neto,
+                    imp_iva=imp_iva,
+                    imp_trib=factura.imp_trib,
+                    imp_op_ex=factura.imp_op_ex,
+                    fecha_cbte=factura.fecha_cbte,
+                    moneda_id=factura.moneda_id,
+                    moneda_ctz=factura.moneda_ctz,
+                    condicion_iva_receptor_id=condicion_iva,
+                )
 
-        cae = self.wsfev1.CAESolicitar()
+                cae = self.wsfev1.CAESolicitar()
 
-        resultado = getattr(self.wsfev1, "Resultado", "")
-        vencimiento = getattr(self.wsfev1, "Vencimiento", "")
-        cbte_nro_resp = getattr(self.wsfev1, "CbteNro", None)
-        fecha_cbte = getattr(self.wsfev1, "FechaCbte", None)
-        emision_tipo = getattr(self.wsfev1, "EmisionTipo", None)
-        punto_venta = getattr(self.wsfev1, "PuntoVenta", None)
-        cbt_desde = getattr(self.wsfev1, "CbtDesde", None)
-        cbt_hasta = getattr(self.wsfev1, "CbtHasta", None)
-        reproceso = getattr(self.wsfev1, "Reproceso", None)
-        obs = getattr(self.wsfev1, "Obs", []) or []
-        err_msg = getattr(self.wsfev1, "ErrMsg", None)
-        err_code = getattr(self.wsfev1, "ErrCode", None)
+                excepcion = getattr(self.wsfev1, "Excepcion", None)
+                if excepcion and attempt == 0 and is_token_expirado_error(Exception(str(excepcion))):
+                    logger.warning("Token AFIP expirado (WSFE Factura C), invalidando caché y reintentando: %s", excepcion)
+                    invalidar_y_reconectar(self.env)
+                    self._conectar()
+                    continue
 
-        if obs and isinstance(obs, str):
-            obs = [obs]
+                resultado = getattr(self.wsfev1, "Resultado", "")
+                vencimiento = getattr(self.wsfev1, "Vencimiento", "")
+                cbte_nro_resp = getattr(self.wsfev1, "CbteNro", None)
+                fecha_cbte = getattr(self.wsfev1, "FechaCbte", None)
+                emision_tipo = getattr(self.wsfev1, "EmisionTipo", None)
+                punto_venta = getattr(self.wsfev1, "PuntoVenta", None)
+                cbt_desde = getattr(self.wsfev1, "CbtDesde", None)
+                cbt_hasta = getattr(self.wsfev1, "CbtHasta", None)
+                reproceso = getattr(self.wsfev1, "Reproceso", None)
+                obs = getattr(self.wsfev1, "Obs", []) or []
+                err_msg = getattr(self.wsfev1, "ErrMsg", None)
+                err_code = getattr(self.wsfev1, "ErrCode", None)
+                if obs and isinstance(obs, str):
+                    obs = [obs]
+                fecha_cbte = fecha_cbte if fecha_cbte else None
+                vencimiento = vencimiento if vencimiento else None
 
-        fecha_cbte = fecha_cbte if fecha_cbte else None
-        vencimiento = vencimiento if vencimiento else None
-
-        return FacturaResponse(
-            resultado=resultado,
-            cae=str(cae) if cae else None,
-            vencimiento=vencimiento,
-            cbte_nro=cbte_nro_resp if cbte_nro_resp is not None else cbte_nro,
-            fecha_cbte=fecha_cbte,
-            emision_tipo=emision_tipo,
-            punto_venta=int(punto_venta) if punto_venta is not None else factura.punto_vta,
-            cbt_desde=int(cbt_desde) if cbt_desde is not None else None,
-            cbt_hasta=int(cbt_hasta) if cbt_hasta is not None else None,
-            tipo_cbte=tipo_cbte,
-            reproceso=reproceso if reproceso else None,
-            obs=obs if isinstance(obs, list) else [],
-            err_msg=err_msg,
-            err_code=str(err_code) if err_code else None,
-        )
+                return FacturaResponse(
+                    resultado=resultado,
+                    cae=str(cae) if cae else None,
+                    vencimiento=vencimiento,
+                    cbte_nro=cbte_nro_resp if cbte_nro_resp is not None else cbte_nro,
+                    fecha_cbte=fecha_cbte,
+                    emision_tipo=emision_tipo,
+                    punto_venta=int(punto_venta) if punto_venta is not None else factura.punto_vta,
+                    cbt_desde=int(cbt_desde) if cbt_desde is not None else None,
+                    cbt_hasta=int(cbt_hasta) if cbt_hasta is not None else None,
+                    tipo_cbte=tipo_cbte,
+                    reproceso=reproceso if reproceso else None,
+                    obs=obs if isinstance(obs, list) else [],
+                    err_msg=err_msg,
+                    err_code=str(err_code) if err_code else None,
+                )
+            except Exception as e:
+                if attempt == 1 or not is_token_expirado_error(e):
+                    raise
+                logger.warning("Token AFIP expirado (WSFE Factura C), invalidando caché y reintentando: %s", e)
+                invalidar_y_reconectar(self.env)
+                self._conectar()
     
     def obtener_puntos_venta(self) -> List[PuntoVenta]:
         """

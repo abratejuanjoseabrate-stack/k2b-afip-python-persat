@@ -30,6 +30,16 @@ def get_padron_service(env: str = Depends(_get_env)) -> PadronA5Service:
         return _padron_a5_instances[env]
 
 
+def clear_padron_a5_service(env: str) -> None:
+    """
+    Elimina el singleton de PadronA5Service para el ambiente dado.
+    Útil cuando el token AFIP expira: tras invalidar caché TA, al limpiar aquí
+    la próxima llamada a get_padron_service(env) creará una instancia nueva con TA fresco.
+    """
+    with _padron_a5_lock:
+        _padron_a5_instances.pop(env, None)
+
+
 def get_padron_a4_service(env: str = Depends(_get_env)) -> PadronA4Service:
     """
     Una instancia de PadronA4Service por ambiente (singleton).

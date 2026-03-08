@@ -123,20 +123,20 @@ class WSFEv1Service:
         print(f"[emitir_factura] Último autorizado: {ultimo}, Siguiente número: {cbte_nro}")
         print(f"[emitir_factura] Fecha comprobante: {factura.fecha_cbte}")
         
-        # Determinar condicion_iva_receptor_id
+        # Determinar condicion_iva_receptor_id (código AFIP: 1=RI, 4=Monotributo, 5=CF, 6=Exento)
         # Si no se especifica, usar valor por defecto según tipo_doc
-        # 5 = Consumidor Final (para tipo_doc=99)
         condicion_iva = factura.condicion_iva_receptor_id
         if condicion_iva is None:
             if factura.tipo_doc == 99:
-                # Consumidor Final → Condición IVA 5
                 condicion_iva = 5
             else:
-                # Para otros tipos de documento, requerir explícitamente
                 raise ValueError(
                     "condicion_iva_receptor_id es obligatorio según RG 5616. "
                     "Para tipo_doc=99 (Consumidor Final) usar: condicion_iva_receptor_id=5"
                 )
+        # Para Factura B (tipo_cbte=6) y C (11), AFIP no acepta condición 6 (Exento) → usar 5 (Consumidor Final)
+        if factura.tipo_cbte in (6, 11) and condicion_iva == 6:
+            condicion_iva = 5
         
         # Crear factura
         self.wsfev1.CrearFactura(
@@ -248,6 +248,8 @@ class WSFEv1Service:
                     "condicion_iva_receptor_id es obligatorio según RG 5616. "
                     "Para tipo_doc=99 (Consumidor Final) usar: condicion_iva_receptor_id=5"
                 )
+        if tipo_cbte in (6, 11) and condicion_iva == 6:
+            condicion_iva = 5
 
         # Factura C típicamente no discrimina IVA en la cabecera
         imp_iva = 0.0

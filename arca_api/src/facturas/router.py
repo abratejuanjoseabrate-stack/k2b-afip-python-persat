@@ -35,7 +35,7 @@ router = APIRouter(prefix="/api/v1/facturas", tags=["facturas"])
 @router.post("", response_model=FacturaResponse, status_code=status.HTTP_201_CREATED)
 def crear_factura(
     factura: FacturaCreate,
-    service: WSFEv1Service = Depends(get_wsfev1_service)
+    service: WSFEv1Service = Depends(get_wsfev1_service),
 ):
     """
     Crea cualquier tipo de comprobante electrónico y obtiene el CAE
@@ -92,8 +92,6 @@ def crear_factura(
     logger.info(f"Creando factura tipo {factura.tipo_cbte} (endpoint interno)")
     try:
         response = service.emitir_factura(factura)
-        
-        # Si fue rechazado, lanzar excepción de validación
         if response.resultado == "R":
             raise AFIPValidationError(
                 message=response.err_msg or "Comprobante rechazado por AFIP",
@@ -102,23 +100,19 @@ def crear_factura(
                 observaciones=response.obs,
                 error_code=response.err_code,
             )
-        
         return response
-    
     except HTTPException:
         raise
+    except AFIPValidationError:
+        raise
     except Exception as e:
-        # Re-lanzar excepciones de AFIP (serán manejadas por el handler global)
-        if isinstance(e, (AFIPValidationError,)):
-            raise
-        # Para otras excepciones, lanzar HTTPException genérico
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/c", response_model=FacturaResponse, status_code=status.HTTP_201_CREATED)
 def crear_factura_c(
     factura: FacturaCCreate,
-    service: WSFEv1Service = Depends(get_wsfev1_service)
+    service: WSFEv1Service = Depends(get_wsfev1_service),
 ):
     """Crea una Factura C (tipo_cbte=11) y obtiene el CAE.
 
@@ -171,11 +165,9 @@ def crear_factura_c(
 
     except HTTPException:
         raise
+    except AFIPValidationError:
+        raise
     except Exception as e:
-        # Re-lanzar excepciones de AFIP (serán manejadas por el handler global)
-        if isinstance(e, (AFIPValidationError,)):
-            raise
-        # Para otras excepciones, lanzar HTTPException genérico
         raise HTTPException(status_code=500, detail=str(e))
 
 
