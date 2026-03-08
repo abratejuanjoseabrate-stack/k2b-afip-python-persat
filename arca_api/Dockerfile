@@ -59,5 +59,8 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Comando de inicio
-CMD ["python", "run.py"]
+# Producción: Gunicorn + varios workers (concurrencia 30+ usuarios). Default 2 workers.
+# En desarrollo local seguir usando: python run.py
+ENV GUNICORN_WORKERS=2
+
+CMD ["sh", "-c", "exec gunicorn src.main:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --workers ${GUNICORN_WORKERS} --worker-tmp-dir /dev/shm"]

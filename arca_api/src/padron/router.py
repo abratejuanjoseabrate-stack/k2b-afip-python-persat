@@ -1,7 +1,9 @@
 """
 Router de padrón - Endpoints REST para WS-SR-PADRON (A5).
 Cache de respuesta por (CUIT, env) con TTL 1h para reducir llamadas a AFIP.
+Las llamadas a PyAfipWs (síncronas) se ejecutan en run_in_executor para no bloquear el event loop.
 """
+import asyncio
 import threading
 import time
 from fastapi import APIRouter, HTTPException, Query, Depends
@@ -124,7 +126,7 @@ def _build_padron_a5_response(id_persona: str, padron, datos: dict, domicilio: d
 
 
 @router.get("/a5", response_model=PadronA5Response)
-def consultar_padron_a5(
+async def consultar_padron_a5(
     id_persona: str = Query(..., description="CUIT/DNI a consultar (sin guiones)"),
     debug: str = Query("false", description="Devuelve request/response SOAP completos (solo debugging): true/1"),
     service: PadronA5Service = Depends(get_padron_service)
@@ -147,7 +149,8 @@ def consultar_padron_a5(
 
     logger.info(f"Padrón A5 consulta para: {id_persona}")
     try:
-        padron = service.consultar(id_persona)
+        loop = asyncio.get_running_loop()
+        padron = await loop.run_in_executor(None, lambda: service.consultar(id_persona))
         raw = getattr(padron, "data", {}) or {}
         datos = raw if isinstance(raw, dict) else {}
         domicilio = datos.get("domicilioFiscal", {}) if isinstance(datos.get("domicilioFiscal"), dict) else {}
@@ -164,7 +167,7 @@ def consultar_padron_a5(
 
 
 @router.get("/a4", response_model=PadronA5Response)
-def consultar_padron_a4(
+async def consultar_padron_a4(
     id_persona: str = Query(..., description="CUIT/DNI a consultar (sin guiones)"),
     debug: str = Query("false", description="Devuelve request/response SOAP completos (solo debugging): true/1"),
     service: PadronA4Service = Depends(get_padron_a4_service)
@@ -179,7 +182,8 @@ def consultar_padron_a4(
     logger.info(f"Padrón A4 consulta para: {id_persona}")
     try:
         id_persona = (id_persona or "").strip()
-        padron = service.consultar(id_persona)
+        loop = asyncio.get_running_loop()
+        padron = await loop.run_in_executor(None, lambda: service.consultar(id_persona))
 
         raw = getattr(padron, "data", {}) or {}
         datos = raw if isinstance(raw, dict) else {}

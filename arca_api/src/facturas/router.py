@@ -3,7 +3,9 @@ Router de facturas - Endpoints REST para WSFEv1
 Router unificado que acepta ambiente (homo/prod) como parámetro
 
 Nota: Este microservicio es interno, los endpoints no requieren autenticación JWT.
+Las llamadas a PyAfipWs (síncronas) se ejecutan en run_in_executor para no bloquear el event loop.
 """
+import asyncio
 from fastapi import APIRouter, HTTPException, Query, Depends, status
 from fastapi.responses import Response
 from .service import WSFEv1Service
@@ -33,7 +35,7 @@ router = APIRouter(prefix="/api/v1/facturas", tags=["facturas"])
 
 
 @router.post("", response_model=FacturaResponse, status_code=status.HTTP_201_CREATED)
-def crear_factura(
+async def crear_factura(
     factura: FacturaCreate,
     service: WSFEv1Service = Depends(get_wsfev1_service),
 ):
@@ -91,7 +93,8 @@ def crear_factura(
     """
     logger.info(f"Creando factura tipo {factura.tipo_cbte} (endpoint interno)")
     try:
-        response = service.emitir_factura(factura)
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(None, lambda: service.emitir_factura(factura))
         if response.resultado == "R":
             raise AFIPValidationError(
                 message=response.err_msg or "Comprobante rechazado por AFIP",
@@ -110,7 +113,7 @@ def crear_factura(
 
 
 @router.post("/c", response_model=FacturaResponse, status_code=status.HTTP_201_CREATED)
-def crear_factura_c(
+async def crear_factura_c(
     factura: FacturaCCreate,
     service: WSFEv1Service = Depends(get_wsfev1_service),
 ):
@@ -150,7 +153,8 @@ def crear_factura_c(
     """
     logger.info(f"Creando factura C (endpoint interno)")
     try:
-        response = service.emitir_factura_c(factura)
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(None, lambda: service.emitir_factura_c(factura))
 
         if response.resultado == "R":
             raise AFIPValidationError(
@@ -172,7 +176,7 @@ def crear_factura_c(
 
 
 @router.get("/consultar", response_model=CompConsultarResponse)
-def consultar_comprobante(
+async def consultar_comprobante(
     tipo_cbte: int = Query(..., description="Tipo de comprobante (ej: 11=Factura C)."),
     punto_vta: int = Query(..., description="Punto de venta (ej: 1, 2, 3...)."),
     cbte_nro: int = Query(..., description="Número del comprobante (ej: 123)."),
@@ -212,14 +216,18 @@ def consultar_comprobante(
     - **`cbtes_asoc`:** comprobantes asociados (si este comprobante es una NC/ND)
     """
     try:
-        data = service.consultar_comprobante(tipo_cbte=tipo_cbte, punto_vta=punto_vta, cbte_nro=cbte_nro)
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None,
+            lambda: service.consultar_comprobante(tipo_cbte=tipo_cbte, punto_vta=punto_vta, cbte_nro=cbte_nro),
+        )
         return CompConsultarResponse(**data)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/ultimo-autorizado", response_model=UltimoAutorizadoResponse)
-def obtener_ultimo_autorizado(
+async def obtener_ultimo_autorizado(
     tipo_cbte: int = Query(..., description="Tipo de comprobante"),
     punto_vta: int = Query(..., description="Punto de venta"),
     service: WSFEv1Service = Depends(get_wsfev1_service)
@@ -235,8 +243,11 @@ def obtener_ultimo_autorizado(
     - **punto_vta**: Punto de venta
     """
     try:
-        ultimo_nro = service.obtener_ultimo_autorizado(tipo_cbte, punto_vta)
-        
+        loop = asyncio.get_running_loop()
+        ultimo_nro = await loop.run_in_executor(
+            None,
+            lambda: service.obtener_ultimo_autorizado(tipo_cbte, punto_vta),
+        )
         return UltimoAutorizadoResponse(
             tipo_cbte=tipo_cbte,
             punto_vta=punto_vta,
@@ -248,7 +259,7 @@ def obtener_ultimo_autorizado(
 
 
 @router.get("/puntos-venta", response_model=PuntosVentaResponse)
-def obtener_puntos_venta(
+async def obtener_puntos_venta(
     service: WSFEv1Service = Depends(get_wsfev1_service)
 ):
     """
@@ -262,8 +273,8 @@ def obtener_puntos_venta(
     incluyendo información sobre estado de bloqueo y fecha de baja.
     """
     try:
-        puntos_venta = service.obtener_puntos_venta()
-        
+        loop = asyncio.get_running_loop()
+        puntos_venta = await loop.run_in_executor(None, service.obtener_puntos_venta)
         return PuntosVentaResponse(puntos_venta=puntos_venta)
     
     except Exception as e:
@@ -271,7 +282,7 @@ def obtener_puntos_venta(
 
 
 @router.get("/params/condiciones-iva-receptor", response_model=IVACondicionesResponse)
-def obtener_condiciones_iva_receptor(
+async def obtener_condiciones_iva_receptor(
     clase_cmp: str = Query("A", description="Clase de comprobante para filtrar las condiciones (A, B o M)"),
     service: WSFEv1Service = Depends(get_wsfev1_service)
 ):
@@ -286,14 +297,18 @@ def obtener_condiciones_iva_receptor(
     Este endpoint usa el método `FEParamGetCondicionIvaReceptor` de WSFEv1.
     """
     try:
-        condiciones = service.obtener_condiciones_iva_receptor(clase_cmp=clase_cmp)
+        loop = asyncio.get_running_loop()
+        condiciones = await loop.run_in_executor(
+            None,
+            lambda: service.obtener_condiciones_iva_receptor(clase_cmp=clase_cmp),
+        )
         return IVACondicionesResponse(condiciones=condiciones)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/params/tipos-comprobante", response_model=TiposComprobanteResponse)
-def obtener_tipos_comprobante(
+async def obtener_tipos_comprobante(
     service: WSFEv1Service = Depends(get_wsfev1_service)
 ):
     """
@@ -305,14 +320,15 @@ def obtener_tipos_comprobante(
     - Etc.
     """
     try:
-        tipos = service.obtener_tipos_comprobante()
+        loop = asyncio.get_running_loop()
+        tipos = await loop.run_in_executor(None, service.obtener_tipos_comprobante)
         return TiposComprobanteResponse(tipos=tipos)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/params/tipos-documento", response_model=TiposDocumentoResponse)
-def obtener_tipos_documento(
+async def obtener_tipos_documento(
     service: WSFEv1Service = Depends(get_wsfev1_service)
 ):
     """
@@ -322,14 +338,15 @@ def obtener_tipos_documento(
     - CUIT, DNI, Consumidor Final, etc.
     """
     try:
-        tipos = service.obtener_tipos_documento()
+        loop = asyncio.get_running_loop()
+        tipos = await loop.run_in_executor(None, service.obtener_tipos_documento)
         return TiposDocumentoResponse(tipos=tipos)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/params/tipos-iva", response_model=TiposIVAResponse)
-def obtener_tipos_iva(
+async def obtener_tipos_iva(
     service: WSFEv1Service = Depends(get_wsfev1_service)
 ):
     """
@@ -339,14 +356,15 @@ def obtener_tipos_iva(
     - 0%, 10.5%, 21%, etc.
     """
     try:
-        tipos = service.obtener_tipos_iva()
+        loop = asyncio.get_running_loop()
+        tipos = await loop.run_in_executor(None, service.obtener_tipos_iva)
         return TiposIVAResponse(tipos=tipos)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/params/tipos-concepto", response_model=TiposConceptoResponse)
-def obtener_tipos_concepto(
+async def obtener_tipos_concepto(
     service: WSFEv1Service = Depends(get_wsfev1_service)
 ):
     """
@@ -356,7 +374,8 @@ def obtener_tipos_concepto(
     - Productos, Servicios, Productos y Servicios
     """
     try:
-        tipos = service.obtener_tipos_concepto()
+        loop = asyncio.get_running_loop()
+        tipos = await loop.run_in_executor(None, service.obtener_tipos_concepto)
         return TiposConceptoResponse(tipos=tipos)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

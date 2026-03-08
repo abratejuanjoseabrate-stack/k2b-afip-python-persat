@@ -1,9 +1,11 @@
 """
-Exception handlers globales para la aplicación FastAPI
+Exception handlers globales para la aplicación FastAPI.
+En producción no se expone body en validación ni traceback vía query param.
 """
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from ..config import settings
 from .exceptions import (
     AFIPError,
     AFIPConnectionError,
@@ -27,9 +29,8 @@ def _safe_text(value) -> str | None:
 
 
 def _is_debug_enabled(request: Request) -> bool:
-    """Verifica si el modo debug está habilitado en el request"""
-    debug_param = request.query_params.get("debug", "").lower()
-    return debug_param in ("true", "1")
+    """Habilita detalle extra (SOAP, traceback) solo si settings.DEBUG es True. No usar query param en producción."""
+    return getattr(settings, "DEBUG", False)
 
 
 async def afip_error_handler(request: Request, exc: AFIPError) -> JSONResponse:
@@ -83,35 +84,30 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
             "type": error.get("type"),
         })
     
-    return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={
-            "detail": "Error de validación",
-            "errors": errors,
-            "body": exc.body if hasattr(exc, "body") else None
-        }
-    )
+    content: dict = {
+        "detail": "Error de validación",
+        "errors": errors,
+    }
+    # No exponer body en producción (puede contener contraseñas u otros datos sensibles)
+    if getattr(settings, "DEBUG", False) and hasattr(exc, "body"):
+        content["body"] = exc.body
+    return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content=content)
 
 
 async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """
-    Handler genérico para excepciones no manejadas
-    
-    Último recurso para capturar cualquier excepción no esperada
+    Handler genérico para excepciones no manejadas.
+    Traceback solo si settings.DEBUG es True (no por query param).
     """
     include_debug = _is_debug_enabled(request)
-    
-    error_detail = {
+    error_detail: dict = {
         "error": str(exc),
-        "type": type(exc).__name__
+        "type": type(exc).__name__,
     }
-    
-    # En modo debug, incluir más información
     if include_debug:
         import traceback
         error_detail["traceback"] = traceback.format_exc()
-    
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": error_detail}
+        content={"detail": error_detail},
     )

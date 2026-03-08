@@ -1,5 +1,5 @@
 """
-Aplicación FastAPI principal - Nueva estructura por dominio
+Aplicaci?n FastAPI principal - Nueva estructura por dominio
 Wrapper REST sobre pyafipws
 """
 from contextlib import asynccontextmanager
@@ -20,7 +20,7 @@ from .shared.exception_handlers import (
 )
 from .shared.logging_config import setup_logging, get_logger
 
-# Configurar logging al importar el módulo
+# Configurar logging al importar el m?dulo
 log_file = Path(settings.LOG_FILE) if settings.LOG_FILE else None
 setup_logging(level=settings.LOG_LEVEL, log_file=log_file)
 
@@ -30,7 +30,7 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Lifespan events: startup y shutdown de la aplicación
+    Lifespan events: startup y shutdown de la aplicaci?n
     
     Startup:
     - Valida que existan los certificados necesarios
@@ -44,13 +44,12 @@ async def lifespan(app: FastAPI):
     logger.info(f"Iniciando {settings.API_TITLE} v{settings.API_VERSION}")
     logger.info(f"CUIT: {settings.CUIT}")
     logger.info(f"Punto de venta: {settings.PTO_VTA}")
-    
-    # Validar que existan los certificados para homologación
+    # Validar que existan los certificados para homologaci?n
     cert_path, key_path = settings.get_cert_paths("homo")
     if not cert_path.exists():
-        logger.warning(f"Certificado de homologación no encontrado: {cert_path}")
+        logger.warning(f"Certificado de homologaci?n no encontrado: {cert_path}")
     if not key_path.exists():
-        logger.warning(f"Clave de homologación no encontrada: {key_path}")
+        logger.warning(f"Clave de homologaci?n no encontrada: {key_path}")
     
     # Crear directorios de cache si no existen
     cache_path = settings.get_cache_path("homo")
@@ -65,7 +64,7 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
         logger.info("Tablas de base de datos verificadas/creadas")
 
-    # Seed: si no hay usuarios y están definidos PADRON_SERVICE_EMAIL/PASSWORD, crear usuario de servicio
+    # Seed: si no hay usuarios y est?n definidos PADRON_SERVICE_EMAIL/PASSWORD, crear usuario de servicio
     email = (settings.PADRON_SERVICE_EMAIL or "").strip()
     password = (settings.PADRON_SERVICE_PASSWORD or "").strip()
     if email and password:
@@ -81,14 +80,16 @@ async def lifespan(app: FastAPI):
                 )
                 session.add(user)
                 await session.commit()
-                logger.info("Usuario de servicio creado (email=%s) para proxy de padrón", email)
+                logger.info("Usuario de servicio creado (email=%s) para proxy de padr?n", email)
     
-    logger.info("Aplicación lista")
-    
+    logger.info("Aplicaci?n lista")
+
     yield
-    
-    # Shutdown (cleanup si es necesario)
-    logger.info("Cerrando aplicación")
+
+    # Shutdown: cerrar pool de DB
+    from .database import engine
+    await engine.dispose()
+    logger.info("Cerrando aplicaci?n")
 
 
 app = FastAPI(
@@ -118,7 +119,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routers unificados por dominio (aceptan env como parámetro)
+# Routers unificados por dominio (aceptan env como par?metro)
 app.include_router(auth_router)
 app.include_router(facturas_router)
 app.include_router(padron_router)
@@ -137,7 +138,7 @@ def health_check():
 
 @app.get("/")
 def root():
-    """Endpoint raíz"""
+    """Endpoint ra?z"""
     return {
         "message": "PyAfipWs API",
         "version": settings.API_VERSION,
@@ -148,5 +149,5 @@ def root():
             "facturas": "/api/v1/facturas",
             "padron": "/api/v1/padron"
         },
-        "note": "Los endpoints aceptan el parámetro 'env' (homo/prod) para seleccionar el ambiente"
+        "note": "Los endpoints aceptan el par?metro 'env' (homo/prod) para seleccionar el ambiente"
     }

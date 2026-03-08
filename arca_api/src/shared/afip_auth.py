@@ -1,19 +1,40 @@
 """
 Wrapper de pyafipws.wsaa para autenticación AFIP
-Gestiona tickets de acceso (TA) con caché
+Gestiona tickets de acceso (TA) con caché en memoria (TTL 10 h) + archivos (pyafipws).
+Al invalidar (token expirado) se limpia memoria y archivos para pedir TA nuevo.
 """
 import os
+import threading
+import time
 from pyafipws.wsaa import WSAA
 from ..config import settings
 from .logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# Cache en memoria: (service, env) -> (ta_xml_string, timestamp). TTL 10 h para renovar antes de las ~12 h de AFIP.
+_TA_MEMORY_CACHE: dict[tuple[str, str], tuple[str, float]] = {}
+_TA_CACHE_LOCK = threading.Lock()
+_TA_CACHE_TTL_SEC = 10 * 3600  # 10 horas
+
+
+def _normalize_ta(ta: str) -> str:
+    """Limpia el XML del TA para evitar 'junk after document element'."""
+    ta = (ta or "").strip()
+    if "</loginTicketResponse>" in ta:
+        end_idx = ta.find("</loginTicketResponse>") + len("</loginTicketResponse>")
+        ta = ta[:end_idx]
+    elif "</credentials>" in ta:
+        end_idx = ta.find("</credentials>") + len("</credentials>")
+        ta = ta[:end_idx]
+    return ta.strip()
+
 
 def get_ticket_acceso(service: str = "wsfe", env: str = "homo") -> str:
     """
     Obtiene ticket de acceso (TA) de AFIP.
-    Usa caché si el ticket está vigente.
+    Usa caché en memoria (TTL 10 h) para no llamar a WSAA en cada request.
+    Si el TA está vencido en memoria, usa caché en disco de pyafipws o pide uno nuevo a AFIP.
     
     Args:
         service: Servicio AFIP (por defecto "wsfe")
@@ -25,16 +46,24 @@ def get_ticket_acceso(service: str = "wsfe", env: str = "homo") -> str:
     Raises:
         Exception: Si falla la autenticación con AFIP
     """
-    wsaa = WSAA()
+    key = (service, env)
+    now = time.time()
+    with _TA_CACHE_LOCK:
+        entry = _TA_MEMORY_CACHE.get(key)
+        if entry:
+            ta_cached, ts = entry
+            if (now - ts) < _TA_CACHE_TTL_SEC:
+                logger.debug(f"TA desde caché en memoria para {service}/{env}")
+                return ta_cached
+            # Expirado en memoria; quitar para pedir uno nuevo
+            _TA_MEMORY_CACHE.pop(key, None)
 
+    wsaa = WSAA()
     cert_path, key_path = settings.get_cert_paths(env)
     cache_path = settings.get_cache_path(env)
     wsdl = settings.get_wsaa_wsdl(env)
-    
+
     logger.debug(f"Obteniendo ticket de acceso para servicio: {service}, ambiente: {env}")
-    logger.debug(f"Cert: {cert_path}, Key: {key_path}, WSDL: {wsdl}")
-    
-    # Autenticar con AFIP (usa caché automático de pyafipws)
     ta = wsaa.Autenticar(
         service,
         str(cert_path),
@@ -43,32 +72,17 @@ def get_ticket_acceso(service: str = "wsfe", env: str = "homo") -> str:
         cache=str(cache_path),
         debug=settings.AFIP_DEBUG_WSAA,
     )
-    
+
     if not ta:
         logger.error(f"No se pudo obtener ticket de acceso para servicio: {service}, ambiente: {env}")
         raise Exception("No se pudo obtener ticket de acceso de AFIP")
-    
-    logger.info(f"Ticket de acceso obtenido exitosamente para servicio: {service}, ambiente: {env}")
-    
-    # wsaa.Autenticar() retorna el XML completo del TA
-    # Limpiar posibles espacios/líneas extras al final que causan "junk after document element"
-    ta = ta.strip()
-    
-    # Si el TA tiene múltiples documentos XML o contenido extra, extraer solo el primero
-    # El error "junk after document element" ocurre cuando hay contenido después del cierre del elemento raíz
-    # Buscar el cierre del elemento raíz principal (loginTicketResponse o credentials)
-    if "</loginTicketResponse>" in ta:
-        # Extraer hasta el cierre de loginTicketResponse
-        end_idx = ta.find("</loginTicketResponse>") + len("</loginTicketResponse>")
-        ta = ta[:end_idx]
-    elif "</credentials>" in ta:
-        # Si viene solo credentials, extraer hasta su cierre
-        end_idx = ta.find("</credentials>") + len("</credentials>")
-        ta = ta[:end_idx]
-    
-    # Asegurar que termine correctamente (sin espacios extras)
-    ta = ta.strip()
-    
+
+    logger.info(f"Ticket de acceso obtenido para servicio: {service}, ambiente: {env}")
+    ta = _normalize_ta(ta)
+
+    with _TA_CACHE_LOCK:
+        _TA_MEMORY_CACHE[key] = (ta, now)
+
     return ta
 
 
@@ -123,16 +137,23 @@ def get_token_sign(service: str = "wsfe", env: str = "homo") -> tuple[str, str]:
 
 def invalidar_cache_ta(env: str = "homo") -> int:
     """
-    Borra los archivos de caché de tickets de acceso (TA) para el ambiente dado.
-    Útil cuando AFIP devuelve "El token ha expirado": al borrar el caché,
-    la próxima llamada a get_ticket_acceso() solicitará un TA nuevo a AFIP.
+    Borra el caché de TA (memoria + archivos) para el ambiente dado.
+    Útil cuando AFIP devuelve "El token ha expirado": la próxima llamada
+    a get_ticket_acceso() pedirá un TA nuevo a AFIP.
 
     Args:
         env: Ambiente ("homo" o "prod")
 
     Returns:
-        Número de archivos eliminados
+        Número de archivos eliminados (en disco)
     """
+    with _TA_CACHE_LOCK:
+        to_drop = [k for k in _TA_MEMORY_CACHE if k[1] == env]
+        for k in to_drop:
+            del _TA_MEMORY_CACHE[k]
+        if to_drop:
+            logger.info(f"Caché TA en memoria invalidado para env={env} ({len(to_drop)} entrada(s))")
+
     cache_path = settings.get_cache_path(env)
     if not cache_path.exists():
         return 0
@@ -141,7 +162,7 @@ def invalidar_cache_ta(env: str = "homo") -> int:
         try:
             os.remove(f)
             removed += 1
-            logger.info(f"Caché TA invalidado: eliminado {f.name} (env={env})")
+            logger.info(f"Caché TA en disco invalidado: eliminado {f.name} (env={env})")
         except OSError as e:
             logger.warning(f"No se pudo eliminar {f}: {e}")
     return removed
