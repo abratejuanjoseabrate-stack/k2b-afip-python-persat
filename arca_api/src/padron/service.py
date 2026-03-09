@@ -108,7 +108,28 @@ class PadronA5Service:
         for attempt in range(2):
             with self._lock:
                 logger.info(f"Consultando padrón A5 para id_persona: {id_persona}")
-                ok = self.padron.Consultar(id_persona_param)
+                try:
+                    ok = self.padron.Consultar(id_persona_param)
+                except Exception as soap_exc:
+                    # pyafipws lanza excepción SOAP directamente (ej: token expirado)
+                    ok = False
+                    error_msg = str(soap_exc)
+                    logger.warning(f"Excepción SOAP en consulta padrón A5: {error_msg}")
+
+                    if attempt == 0 and is_token_expirado_error(soap_exc):
+                        logger.warning("Token AFIP expirado (Padrón A5), invalidando caché y reintentando: %s", error_msg)
+                        invalidar_y_reconectar(self.env)
+                        self._conectar()
+                        continue
+                    # Si no es token expirado o es el segundo intento, propagar el error
+                    raise AFIPServiceError(
+                        message=error_msg,
+                        service=self.service_name,
+                        wsdl=self.wsdl,
+                        soap_request=getattr(self.padron, "XmlRequest", None),
+                        soap_response=getattr(self.padron, "XmlResponse", None),
+                    ) from soap_exc
+
             if not ok:
                 exc = getattr(self.padron, "Excepcion", "") or "Error en consulta padrón"
                 error_msg = str(exc)
@@ -168,28 +189,57 @@ class PadronA4Service:
         logger.info("Conexión PadronA4Service establecida correctamente")
 
     def consultar(self, id_persona: str) -> WSSrPadronA4:
+        """Consulta padrón A4. Reintento automático una vez si AFIP devuelve token expirado."""
         id_persona = (id_persona or "").strip()
-        logger.info(f"Consultando padrón A4 para id_persona: {id_persona}")
         id_persona_param = int(id_persona) if id_persona.isdigit() else id_persona
-        ok = self.padron.Consultar(id_persona_param)
-        if not ok:
-            exc = getattr(self.padron, "Excepcion", "") or "Error en consulta padrón"
-            error_msg = str(exc)
-            logger.warning(f"Consulta padrón A4 fallida para id_persona: {id_persona} — {error_msg}")
+        for attempt in range(2):
+            logger.info(f"Consultando padrón A4 para id_persona: {id_persona}")
+            try:
+                ok = self.padron.Consultar(id_persona_param)
+            except Exception as soap_exc:
+                # pyafipws lanza excepción SOAP directamente (ej: token expirado)
+                ok = False
+                error_msg = str(soap_exc)
+                logger.warning(f"Excepción SOAP en consulta padrón A4: {error_msg}")
 
-            if "No existe" in error_msg or "no existe" in error_msg.lower():
-                raise AFIPNotFoundError(
+                if attempt == 0 and is_token_expirado_error(soap_exc):
+                    logger.warning("Token AFIP expirado (Padrón A4), invalidando caché y reintentando: %s", error_msg)
+                    invalidar_y_reconectar(self.env)
+                    self._conectar()
+                    continue
+                # Si no es token expirado o es el segundo intento, propagar el error
+                raise AFIPServiceError(
+                    message=error_msg,
+                    service=self.service_name,
+                    wsdl=self.wsdl,
+                    soap_request=getattr(self.padron, "XmlRequest", None),
+                    soap_response=getattr(self.padron, "XmlResponse", None),
+                ) from soap_exc
+
+            if not ok:
+                exc = getattr(self.padron, "Excepcion", "") or "Error en consulta padrón"
+                error_msg = str(exc)
+                logger.warning(f"Consulta padrón A4 fallida para id_persona: {id_persona} — {error_msg}")
+
+                if attempt == 0 and is_token_expirado_error(Exception(error_msg)):
+                    logger.warning("Token AFIP expirado (Padrón A4), invalidando caché y reintentando: %s", error_msg)
+                    invalidar_y_reconectar(self.env)
+                    self._conectar()
+                    continue
+
+                if "No existe" in error_msg or "no existe" in error_msg.lower():
+                    raise AFIPNotFoundError(
+                        message=error_msg,
+                        service=self.service_name,
+                        wsdl=self.wsdl,
+                        soap_request=getattr(self.padron, "XmlRequest", None),
+                        soap_response=getattr(self.padron, "XmlResponse", None),
+                    )
+                raise AFIPServiceError(
                     message=error_msg,
                     service=self.service_name,
                     wsdl=self.wsdl,
                     soap_request=getattr(self.padron, "XmlRequest", None),
                     soap_response=getattr(self.padron, "XmlResponse", None),
                 )
-            raise AFIPServiceError(
-                message=error_msg,
-                service=self.service_name,
-                wsdl=self.wsdl,
-                soap_request=getattr(self.padron, "XmlRequest", None),
-                soap_response=getattr(self.padron, "XmlResponse", None),
-            )
-        return self.padron
+            return self.padron
