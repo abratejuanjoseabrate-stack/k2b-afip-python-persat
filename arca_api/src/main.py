@@ -64,23 +64,33 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
         logger.info("Tablas de base de datos verificadas/creadas")
 
-    # Seed: si no hay usuarios y est?n definidos PADRON_SERVICE_EMAIL/PASSWORD, crear usuario de servicio
+    # Seed: si est?n definidos PADRON_SERVICE_EMAIL/PASSWORD, crear usuario de servicio si no existe
     email = (settings.PADRON_SERVICE_EMAIL or "").strip()
     password = (settings.PADRON_SERVICE_PASSWORD or "").strip()
     if email and password:
         from .auth.models import User
         from .auth.service import hash_password
+        from sqlalchemy.exc import IntegrityError
         async with async_session() as session:
-            result = await session.execute(select(User).limit(1))
-            if result.scalar_one_or_none() is None:
+            # Verificar espec?ficamente si el usuario con este email ya existe
+            result = await session.execute(select(User).where(User.email == email))
+            existing_user = result.scalar_one_or_none()
+            if existing_user is None:
                 user = User(
                     email=email,
                     hashed_password=hash_password(password),
                     is_active=True,
                 )
                 session.add(user)
-                await session.commit()
-                logger.info("Usuario de servicio creado (email=%s) para proxy de padr?n", email)
+                try:
+                    await session.commit()
+                    logger.info("Usuario de servicio creado (email=%s) para proxy de padr?n", email)
+                except IntegrityError:
+                    # Race condition: otro worker ya lo cre? entre el check y el insert
+                    await session.rollback()
+                    logger.info("Usuario de servicio (email=%s) ya exist?a (creado por otro worker)", email)
+            else:
+                logger.debug("Usuario de servicio (email=%s) ya existe, omitiendo creaci?n", email)
     
     logger.info("Aplicaci?n lista")
 
