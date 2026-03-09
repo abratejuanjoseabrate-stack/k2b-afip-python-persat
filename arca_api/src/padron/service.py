@@ -96,7 +96,9 @@ class PadronA5Service:
 
         wsdl_path = _get_wsdl_path_padron_a5(self.env)
         self.wsdl = settings.get_padron_a5_wsdl(self.env)
-        self.padron.Conectar(cache=None, wsdl=wsdl_path, cacert=None)
+        # Usar file:// para evitar error de URI en pysimplesoap (que intenta http:///ruta)
+        wsdl_url = f"file://{wsdl_path}"
+        self.padron.Conectar(cache=None, wsdl=wsdl_url, cacert=None)
         logger.info("Conexión PadronA5Service establecida correctamente")
 
     def consultar(self, id_persona: str) -> WSSrPadronA5:
@@ -156,9 +158,11 @@ class PadronA4Service:
         self.wsdl = settings.get_padron_a4_wsdl(self.env)
         logger.info(f"WSDL A4 desde cache: {wsdl_path}")
 
+        # Usar file:// para evitar error de URI en pysimplesoap (que intenta http:///ruta)
+        wsdl_url = f"file://{wsdl_path}"
         self.padron.Conectar(
             cache=None,
-            wsdl=wsdl_path,
+            wsdl=wsdl_url,
             cacert=None,
         )
         logger.info("Conexión PadronA4Service establecida correctamente")
