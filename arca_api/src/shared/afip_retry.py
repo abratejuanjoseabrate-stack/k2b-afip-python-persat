@@ -11,10 +11,29 @@ logger = get_logger(__name__)
 def is_token_expirado_error(e: Exception) -> bool:
     """
     Detecta si el error es por token AFIP expirado (soap:Server).
-    Usado por WSFEv1Service, PadronA5Service y opcionalmente routers.
+    Revisa str(e), faultstring, detail y message por si la excepción SOAP no incluye el mensaje en __str__.
+    Mensaje típico: "soap:Server: El token ha expirado, tiempo de generacion [...], tiempo actual [...], tiempo de expiracion [...]"
     """
-    msg = (str(e) or "").lower()
-    return "expirado" in msg or "token ha expirado" in msg or "soap:server" in msg
+    def _match(s: str) -> bool:
+        if not s:
+            return False
+        s = s.lower()
+        return (
+            "expirado" in s
+            or "token ha expirado" in s
+            or "soap:server" in s
+            or ("token" in s and "expiracion" in s)
+            or "tiempo de expiracion" in s  # texto exacto del mensaje AFIP
+        )
+
+    msg = str(e)
+    if _match(msg):
+        return True
+    for attr in ("faultstring", "fault_string", "detail", "message"):
+        val = getattr(e, attr, None)
+        if val is not None and _match(str(val)):
+            return True
+    return False
 
 
 def invalidar_y_reconectar(env: str) -> None:

@@ -1,9 +1,42 @@
 """
 Wrapper de pyafipws.wsaa para autenticación AFIP
-Gestiona tickets de acceso (TA) con caché
+Gestiona tickets de acceso (TA) con caché en disco (pyafipws).
 """
+import os
 from pyafipws.wsaa import WSAA
 from ..config import settings
+
+
+def _is_token_expirado_message(msg: str) -> bool:
+    """Detecta si el mensaje es el error de AFIP 'token expirado'."""
+    if not msg:
+        return False
+    s = msg.lower()
+    return (
+        "expirado" in s
+        or "token ha expirado" in s
+        or "soap:server" in s and "expiracion" in s
+        or "tiempo de expiracion" in s
+    )
+
+
+def invalidar_cache_ta(env: str = "homo") -> int:
+    """
+    Borra el caché de TA en disco para el ambiente (archivos TA-*.xml).
+    Útil cuando AFIP devuelve "El token ha expirado"; la próxima get_ticket_acceso pedirá un TA nuevo.
+    En api/ no hay caché en memoria; solo se limpia disco.
+    """
+    cache_path = settings.get_cache_path(env)
+    if not cache_path.exists():
+        return 0
+    removed = 0
+    for f in cache_path.glob("TA-*.xml"):
+        try:
+            os.remove(f)
+            removed += 1
+        except OSError:
+            pass
+    return removed
 
 
 def get_ticket_acceso(service: str = "wsfe", env: str = "homo") -> str:
@@ -25,6 +58,7 @@ def get_ticket_acceso(service: str = "wsfe", env: str = "homo") -> str:
 
     cert_path, key_path = settings.get_cert_paths(env)
     cache_path = settings.get_cache_path(env)
+    cache_path.mkdir(parents=True, exist_ok=True)
     wsdl = settings.get_wsaa_wsdl(env)
     
     # Autenticar con AFIP (usa caché automático de pyafipws)
@@ -81,6 +115,7 @@ def get_token_sign(service: str = "wsfe", env: str = "homo") -> tuple[str, str]:
 
     cert_path, key_path = settings.get_cert_paths(env)
     cache_path = settings.get_cache_path(env)
+    cache_path.mkdir(parents=True, exist_ok=True)
     wsdl = settings.get_wsaa_wsdl(env)
     
     # Autenticar con AFIP (usa caché automático de pyafipws)

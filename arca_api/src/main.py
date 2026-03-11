@@ -12,6 +12,7 @@ from .config import settings
 from .facturas.router import router as facturas_router
 from .padron.router import router as padron_router
 from .auth.router import router as auth_router
+from .admin.router import router as admin_router
 from .shared.exceptions import AFIPError
 from .shared.exception_handlers import (
     afip_error_handler,
@@ -84,13 +85,15 @@ async def lifespan(app: FastAPI):
                 session.add(user)
                 try:
                     await session.commit()
-                    logger.info("Usuario de servicio creado (email=%s) para proxy de padr?n", email)
+                    logger.info("Usuario de servicio creado (email=%s) para proxy de padrón", email)
                 except IntegrityError:
-                    # Race condition: otro worker ya lo cre? entre el check y el insert
                     await session.rollback()
-                    logger.info("Usuario de servicio (email=%s) ya exist?a (creado por otro worker)", email)
+                    logger.info("Usuario de servicio (email=%s) ya existía (creado por otro worker)", email)
             else:
-                logger.debug("Usuario de servicio (email=%s) ya existe, omitiendo creaci?n", email)
+                # Actualizar contraseña por si cambió en .env (backenBasicoPersat usa este usuario para login)
+                existing_user.hashed_password = hash_password(password)
+                await session.commit()
+                logger.info("Usuario de servicio (email=%s) actualizado con password del .env", email)
     
     logger.info("Aplicaci?n lista")
 
@@ -133,6 +136,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(facturas_router)
 app.include_router(padron_router)
+app.include_router(admin_router)
 
 
 @app.get("/health")

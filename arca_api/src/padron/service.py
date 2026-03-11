@@ -97,7 +97,8 @@ class PadronA5Service:
         wsdl_path = _get_wsdl_path_padron_a5(self.env)
         self.wsdl = settings.get_padron_a5_wsdl(self.env)
         # Usar file:// para evitar error de URI en pysimplesoap (que intenta http:///ruta)
-        wsdl_url = f"file://{wsdl_path}"
+        # as_uri() genera la URL correcta para cualquier OS (Windows/Linux)
+        wsdl_url = Path(wsdl_path).as_uri()
         self.padron.Conectar(cache=None, wsdl=wsdl_url, cacert=None)
         logger.info("Conexión PadronA5Service establecida correctamente")
 
@@ -107,6 +108,8 @@ class PadronA5Service:
         id_persona_param = int(id_persona) if id_persona.isdigit() else id_persona
         for attempt in range(2):
             with self._lock:
+                if attempt == 1:
+                    logger.info("Padrón A5: segundo intento (tras renovar TA) para id_persona=%s", id_persona)
                 logger.info(f"Consultando padrón A5 para id_persona: {id_persona}")
                 try:
                     ok = self.padron.Consultar(id_persona_param)
@@ -115,8 +118,17 @@ class PadronA5Service:
                     ok = False
                     error_msg = str(soap_exc)
                     logger.warning(f"Excepción SOAP en consulta padrón A5: {error_msg}")
-
-                    if attempt == 0 and is_token_expirado_error(soap_exc):
+                    # Diagnóstico: ver qué recibe la detección (tipo, str, faultstring, ¿dispara reintento?)
+                    _is_expired = attempt == 0 and is_token_expirado_error(soap_exc)
+                    if attempt == 0:
+                        logger.info(
+                            "[PADRON] intento=0 excepción tipo=%s str_len=%s faultstring=%s -> is_token_expirado=%s",
+                            type(soap_exc).__name__,
+                            len(error_msg),
+                            getattr(soap_exc, "faultstring", None) or "(no tiene)",
+                            _is_expired,
+                        )
+                    if _is_expired:
                         logger.warning("Token AFIP expirado (Padrón A5), invalidando caché y reintentando: %s", error_msg)
                         invalidar_y_reconectar(self.env)
                         self._conectar()
@@ -135,7 +147,14 @@ class PadronA5Service:
                 error_msg = str(exc)
                 logger.warning(f"Consulta padrón fallida para id_persona: {id_persona} — {error_msg}")
 
-                if attempt == 0 and is_token_expirado_error(Exception(error_msg)):
+                _is_expired_no_raise = attempt == 0 and is_token_expirado_error(Exception(error_msg))
+                if attempt == 0:
+                    logger.info(
+                        "[PADRON] intento=0 ok=False Excepcion len=%s -> is_token_expirado=%s",
+                        len(error_msg),
+                        _is_expired_no_raise,
+                    )
+                if _is_expired_no_raise:
                     logger.warning("Token AFIP expirado (Padrón A5), invalidando caché y reintentando: %s", error_msg)
                     invalidar_y_reconectar(self.env)
                     self._conectar()
@@ -180,7 +199,8 @@ class PadronA4Service:
         logger.info(f"WSDL A4 desde cache: {wsdl_path}")
 
         # Usar file:// para evitar error de URI en pysimplesoap (que intenta http:///ruta)
-        wsdl_url = f"file://{wsdl_path}"
+        # as_uri() genera la URL correcta para cualquier OS (Windows/Linux)
+        wsdl_url = Path(wsdl_path).as_uri()
         self.padron.Conectar(
             cache=None,
             wsdl=wsdl_url,

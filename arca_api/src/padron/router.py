@@ -11,6 +11,8 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from .schemas import PadronA5Response, ImpuestoDetalle, ActividadDetalle
 from .service import PadronA4Service, PadronA5Service
 from .dependencies import get_padron_service, get_padron_a4_service
+from ..auth.dependencies import get_current_user
+from ..auth import models as auth_models
 from ..shared.exceptions import AFIPError
 from ..shared.logging_config import get_logger
 
@@ -129,12 +131,13 @@ def _build_padron_a5_response(id_persona: str, padron, datos: dict, domicilio: d
 async def consultar_padron_a5(
     id_persona: str = Query(..., description="CUIT/DNI a consultar (sin guiones)"),
     debug: str = Query("false", description="Devuelve request/response SOAP completos (solo debugging): true/1"),
-    service: PadronA5Service = Depends(get_padron_service)
+    service: PadronA5Service = Depends(get_padron_service),
+    current_user: auth_models.User = Depends(get_current_user),
 ):
     """
     Consulta padrón A5 (constancia) por CUIT/DNI.
     Respuestas OK se cachean 1h por (CUIT, env) para reducir llamadas a AFIP.
-    Uso interno: no requiere autenticación (servicio llamado desde backenBasicoPersat).
+    Requiere autenticación JWT. Incluir header: **Authorization: Bearer &lt;token&gt;**
     """
     id_persona = (id_persona or "").strip()
     cache_key = (id_persona, service.env)
@@ -147,7 +150,8 @@ async def consultar_padron_a5(
                 return PadronA5Response(**data)
             del _PADRON_A5_RESPONSE_CACHE[cache_key]
 
-    logger.info(f"Padrón A5 consulta para: {id_persona}")
+    # Log visible en la terminal donde corre arca (python run.py en :8000)
+    logger.info("[PADRON A5] Request recibido id_persona=%s env=%s", id_persona, service.env)
     try:
         loop = asyncio.get_running_loop()
         padron = await loop.run_in_executor(None, lambda: service.consultar(id_persona))

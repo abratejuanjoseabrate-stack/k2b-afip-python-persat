@@ -1,12 +1,13 @@
 """
-Servicio para consultas de padrón (Alcance 5) en homologación
+Servicio para consultas de padrón (Alcance 5) en homologación.
+Reintento automático una vez si AFIP devuelve "token expirado".
 """
 from pathlib import Path
 
 from pyafipws.ws_sr_padron import WSSrPadronA5
 
 from ..config import settings
-from ..services.afip_auth import get_ticket_acceso
+from ..services.afip_auth import get_ticket_acceso, invalidar_cache_ta, _is_token_expirado_message
 
 
 class PadronA5Service:
@@ -44,10 +45,28 @@ class PadronA5Service:
         )
 
     def consultar(self, id_persona: str) -> WSSrPadronA5:
+        """Consulta padrón A5. Si AFIP responde token expirado, invalida caché TA, reconecta y reintenta una vez."""
         id_persona = (id_persona or "").strip()
         id_persona_param = int(id_persona) if id_persona.isdigit() else id_persona
-        ok = self.padron.Consultar(id_persona_param)
-        if not ok:
-            exc = getattr(self.padron, "Excepcion", "") or "Error en consulta padrón"
-            raise Exception(exc)
-        return self.padron
+        last_error = None
+        for attempt in range(2):
+            try:
+                ok = self.padron.Consultar(id_persona_param)
+                if ok:
+                    return self.padron
+                exc = getattr(self.padron, "Excepcion", "") or "Error en consulta padrón"
+                last_error = exc
+            except Exception as e:
+                last_error = str(e)
+                if attempt == 0 and _is_token_expirado_message(last_error):
+                    invalidar_cache_ta(self.env)
+                    self._conectar()
+                    continue
+                raise
+            # ok is False
+            if attempt == 0 and _is_token_expirado_message(last_error or ""):
+                invalidar_cache_ta(self.env)
+                self._conectar()
+                continue
+            raise Exception(last_error or "Error en consulta padrón")
+        raise Exception(last_error or "Error en consulta padrón")

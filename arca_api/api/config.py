@@ -230,14 +230,16 @@ class Settings(BaseSettings):
         return self.CERT_PATH_RESOLVED, self.KEY_PATH_RESOLVED
 
     def get_cache_path(self, env: str) -> Path:
-        """Obtiene el path de cache según el ambiente"""
+        """Obtiene el path de cache según el ambiente. Crea el directorio si no existe."""
         if env == "prod":
             if not self.PROD_CACHE_PATH_STR:
                 # Evita mezclar TA entre ambientes cuando el usuario no configuró PROD_CACHE_PATH
                 prod_cache = (self.CACHE_PATH_RESOLVED / "prod").resolve()
                 prod_cache.mkdir(parents=True, exist_ok=True)
                 return prod_cache
-            return self.PROD_CACHE_PATH_RESOLVED
+            path = self.PROD_CACHE_PATH_RESOLVED
+            path.mkdir(parents=True, exist_ok=True)
+            return path
         return self.CACHE_PATH_RESOLVED
 
 
